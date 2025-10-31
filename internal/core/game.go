@@ -1,13 +1,13 @@
-// internal/core/game.go
 package core
 
 import (
 	"fmt"
 	"image/color"
-	"math"
 	"time"
 
-	"github.com/MarcosBrindis/boss-arena-go/internal/input" // ← NUEVO IMPORT
+	"github.com/MarcosBrindis/boss-arena-go/internal/input"
+	"github.com/MarcosBrindis/boss-arena-go/internal/utils"
+	"github.com/MarcosBrindis/boss-arena-go/internal/world"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
@@ -17,8 +17,11 @@ type Game struct {
 	// Configuración
 	config *Config
 
-	// Input System (NUEVO)
+	// Input System
 	controller *input.Controller
+
+	// World (NUEVO)
+	arena *world.Arena
 
 	// Estado del juego
 	state     GameState
@@ -38,7 +41,7 @@ type Game struct {
 	// Banderas
 	isPaused bool
 
-	// Control de input global (sin sleep)
+	// Control de input global
 	escapeKeyPressedLastFrame bool
 	f11KeyPressedLastFrame    bool
 	f3KeyPressedLastFrame     bool
@@ -50,23 +53,25 @@ func NewGame() *Game {
 
 	return &Game{
 		config: cfg,
-		// Inicializar controller con configuración
 		controller: input.NewController(
 			cfg.GamepadDeadzone,
 			cfg.JumpBufferFrames,
 			cfg.CoyoteTimeFrames,
 		),
+		// Crear arena (NUEVO)
+		arena: world.NewArena(ScreenWidth, ScreenHeight),
+
 		state:      StatePlaying,
 		startTime:  time.Now(),
 		lastUpdate: time.Now(),
 	}
 }
 
-// Update actualiza la lógica del juego (llamado 60 veces por segundo)
+// Update actualiza la lógica del juego
 func (g *Game) Update() error {
 	start := time.Now()
 
-	// Actualizar controller (NUEVO)
+	// Actualizar controller
 	g.controller.Update()
 
 	// Calcular delta time
@@ -83,16 +88,19 @@ func (g *Game) Update() error {
 		g.fps = ebiten.ActualFPS()
 	}
 
-	// Manejar input global (pausa, salir, etc)
+	// Manejar input global
 	if err := g.handleGlobalInput(); err != nil {
 		return err
 	}
 
-	// Si está pausado, no actualizar lógica del juego
+	// Si está pausado, no actualizar lógica
 	if g.isPaused {
 		g.updateDuration = time.Since(start)
 		return nil
 	}
+
+	// Actualizar arena (NUEVO)
+	g.arena.Update()
 
 	// Actualizar según el estado actual
 	switch g.state {
@@ -112,12 +120,12 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// Draw dibuja el juego en pantalla (llamado cada frame)
+// Draw dibuja el juego en pantalla
 func (g *Game) Draw(screen *ebiten.Image) {
 	start := time.Now()
 
-	// Limpiar pantalla con color de fondo
-	screen.Fill(ColorBackground)
+	// Limpiar pantalla (ya no es necesario, la arena dibuja el fondo)
+	// screen.Fill(ColorBackground)
 
 	// Dibujar según el estado actual
 	switch g.state {
@@ -133,7 +141,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawVictory(screen)
 	}
 
-	// Dibujar información de debug si está habilitada
+	// Dibujar información de debug
 	if g.config.ShowDebugInfo {
 		g.drawDebugInfo(screen)
 	}
@@ -151,21 +159,18 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 // ============================================================================
 
 func (g *Game) handleGlobalInput() error {
-	// ESC para pausar/despausar (sin sleep, instantáneo)
 	escapePressed := ebiten.IsKeyPressed(ebiten.KeyEscape)
 	if escapePressed && !g.escapeKeyPressedLastFrame {
 		g.isPaused = !g.isPaused
 	}
 	g.escapeKeyPressedLastFrame = escapePressed
 
-	// F11 para fullscreen
 	f11Pressed := ebiten.IsKeyPressed(ebiten.KeyF11)
 	if f11Pressed && !g.f11KeyPressedLastFrame {
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
 	}
 	g.f11KeyPressedLastFrame = f11Pressed
 
-	// F3 para toggle debug info
 	f3Pressed := ebiten.IsKeyPressed(ebiten.KeyF3)
 	if f3Pressed && !g.f3KeyPressedLastFrame {
 		g.config.ShowDebugInfo = !g.config.ShowDebugInfo
@@ -176,24 +181,23 @@ func (g *Game) handleGlobalInput() error {
 }
 
 func (g *Game) updateMainMenu() {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 func (g *Game) updatePlaying() {
-	// Aquí probaremos el Input System
-	// TODO: En Módulo 4 implementaremos el jugador completo
+	// TODO: En Módulo 4 implementaremos el jugador
 }
 
 func (g *Game) updatePaused() {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 func (g *Game) updateGameOver() {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 func (g *Game) updateVictory() {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 // ============================================================================
@@ -201,43 +205,28 @@ func (g *Game) updateVictory() {
 // ============================================================================
 
 func (g *Game) drawMainMenu(screen *ebiten.Image) {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 func (g *Game) drawPlaying(screen *ebiten.Image) {
-	// Mensaje actualizado con controles correctos
-	msg := "🎮 Módulo 2: Input System funcionando!\n\n"
-	msg += "⌨️  Prueba los controles:\n"
-	msg += "  WASD/Arrows = Mover\n"
-	msg += "  Space/W     = Saltar\n"
-	msg += "  Z/J         = Atacar\n"
-	msg += "  X/K/SHIFT   = Dash\n" // ← ACTUALIZADO
-	msg += "  C/L         = Especial\n\n"
+	// 1. Dibujar arena (NUEVO)
+	g.arena.Draw(screen)
 
-	if g.controller.IsGamepadConnected() {
-		msg += "🎮 Gamepad conectado!\n"
-		msg += fmt.Sprintf("   %s\n\n", g.controller.GetGamepadName())
-		msg += "  ✕ (Cross)    = Saltar\n"
-		msg += "  ⬜ (Square)   = Atacar\n"
-		msg += "  ⚪ (Circle)   = Dash\n"
-		msg += "  R2           = Dash\n" // ← NUEVO
-		msg += "  🔺 (Triangle) = Especial\n"
-	} else {
-		msg += "🎮 Conecta un gamepad PS5 para probarlo\n"
-	}
+	// 2. Mensaje actualizado
+	msg := "🏛️ Módulo 3: Arena completada!\n\n"
+	msg += "✅ Paredes escalonadas estilo Mega Man X\n"
+	msg += "✅ Fondo con efecto parallax\n"
+	msg += "✅ Sistema de colisiones AABB\n"
+	msg += "✅ Grid decorativo en el piso\n\n"
+	msg += "⏭️  Esperando Módulo 4 (Player)..."
 
-	msg += "\n✅ Esperando Módulo 3 (Arena)..."
+	// Dibujar en el centro superior
+	ebitenutil.DebugPrintAt(screen, msg, ScreenWidth/2-200, 50)
 
-	bounds := screen.Bounds()
-	x := float64(bounds.Dx()/2 - 220)
-	y := 100.0
+	// 3. Cuadrado controlable con colisiones (NUEVO)
+	g.drawControllableSquareWithCollisions(screen)
 
-	ebitenutil.DebugPrintAt(screen, msg, int(x), int(y))
-
-	// Dibujar cuadrado controlable (demo de input)
-	g.drawControllableSquare(screen)
-
-	// Dibujar indicadores de input
+	// 4. Indicadores de input
 	g.drawInputIndicators(screen)
 }
 
@@ -253,11 +242,11 @@ func (g *Game) drawPaused(screen *ebiten.Image) {
 }
 
 func (g *Game) drawGameOver(screen *ebiten.Image) {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 func (g *Game) drawVictory(screen *ebiten.Image) {
-	// TODO: Implementar en módulos posteriores
+	// TODO
 }
 
 // ============================================================================
@@ -265,7 +254,6 @@ func (g *Game) drawVictory(screen *ebiten.Image) {
 // ============================================================================
 
 func (g *Game) drawDebugInfo(screen *ebiten.Image) {
-	// Información de input (NUEVO)
 	inputMethod := "Keyboard"
 	if g.controller.IsGamepadConnected() {
 		inputMethod = "Gamepad: " + g.controller.GetGamepadName()
@@ -330,56 +318,202 @@ func (g *Game) getStateName() string {
 }
 
 // ============================================================================
-// DEMO DE INPUT SYSTEM
+// DEMO DE INPUT + COLISIONES (NUEVO)
 // ============================================================================
 
-// Posición del cuadrado controlable (demo)
-var demoSquareX float64 = 640
-var demoSquareY float64 = 450
+var (
+	demoSquareX  float64 = 640
+	demoSquareY  float64 = 575 // 600 (piso) - 25 (mitad del cuadrado)
+	demoVelocity utils.Vector2
+)
 
-func (g *Game) drawControllableSquare(screen *ebiten.Image) {
-	// Mover el cuadrado con el input
-	speed := 5.0
-	demoSquareX += g.controller.GetHorizontalAxis() * speed
-	demoSquareY += g.controller.GetVerticalAxis() * speed
+func (g *Game) drawControllableSquareWithCollisions(screen *ebiten.Image) {
+	squareSize := 50.0
+	speed := 4.0
+	gravity := 0.5
+	maxFallSpeed := 10.0
 
-	// Limitar a la pantalla
-	if demoSquareX < 25 {
-		demoSquareX = 25
-	}
-	if demoSquareX > ScreenWidth-25 {
-		demoSquareX = ScreenWidth - 25
-	}
-	if demoSquareY < 25 {
-		demoSquareY = 25
-	}
-	if demoSquareY > ScreenHeight-25 {
-		demoSquareY = ScreenHeight - 25
+	// Input horizontal
+	inputX := g.controller.GetHorizontalAxis()
+
+	// Aplicar input con fricción
+	if inputX != 0 {
+		demoVelocity.X = inputX * speed
+	} else {
+		demoVelocity.X *= 0.85
+		if utils.Abs(demoVelocity.X) < 0.1 {
+			demoVelocity.X = 0
+		}
 	}
 
-	// Color según acción
+	// Crear hitbox ANTES de mover
+	squareRect := utils.NewRectangle(
+		demoSquareX-squareSize/2,
+		demoSquareY-squareSize/2,
+		squareSize,
+		squareSize,
+	)
+
+	// Verificar si está en suelo
+	isOnGround := g.arena.IsOnGround(squareRect)
+
+	// Aplicar gravedad SOLO si no está en suelo
+	if !isOnGround {
+		demoVelocity.Y += gravity
+		if demoVelocity.Y > maxFallSpeed {
+			demoVelocity.Y = maxFallSpeed
+		}
+	} else {
+		demoVelocity.Y = 0
+	}
+
+	// =========================================================================
+	// MOVIMIENTO HORIZONTAL CON COLISIONES
+	// =========================================================================
+
+	// Intentar mover horizontalmente
+	newX := demoSquareX + demoVelocity.X
+
+	// Crear hitbox en la nueva posición X
+	testRect := utils.NewRectangle(
+		newX-squareSize/2,
+		demoSquareY-squareSize/2,
+		squareSize,
+		squareSize,
+	)
+
+	// Verificar colisión horizontal
+	collidesX, _ := g.arena.CheckCollision(testRect)
+	if !collidesX {
+		// No hay colisión, permitir movimiento
+		demoSquareX = newX
+	} else {
+		// Hay colisión, detener velocidad horizontal
+		demoVelocity.X = 0
+	}
+
+	// =========================================================================
+	// MOVIMIENTO VERTICAL CON COLISIONES
+	// =========================================================================
+
+	// Intentar mover verticalmente
+	newY := demoSquareY + demoVelocity.Y
+
+	// Crear hitbox en la nueva posición Y
+	testRect = utils.NewRectangle(
+		demoSquareX-squareSize/2,
+		newY-squareSize/2,
+		squareSize,
+		squareSize,
+	)
+
+	// Verificar colisión vertical
+	collidesY, _ := g.arena.CheckCollision(testRect)
+	if !collidesY {
+		// No hay colisión, permitir movimiento
+		demoSquareY = newY
+	} else {
+		// Hay colisión, detener velocidad vertical
+		demoVelocity.Y = 0
+	}
+
+	// =========================================================================
+	// LÍMITES DE PANTALLA
+	// =========================================================================
+
+	floorY := g.arena.GetFloorY()
+
+	// Límite inferior: Si cae muy abajo, resetear
+	if demoSquareY > floorY+100 {
+		demoSquareX = float64(ScreenWidth / 2)
+		demoSquareY = 575
+		demoVelocity = utils.Zero()
+	}
+
+	// Límites laterales: No salir de pantalla
+	minX := squareSize/2 + 60 // Margen para la pared
+	maxX := float64(ScreenWidth) - squareSize/2 - 60
+
+	if demoSquareX < minX {
+		demoSquareX = minX
+		demoVelocity.X = 0
+	}
+	if demoSquareX > maxX {
+		demoSquareX = maxX
+		demoVelocity.X = 0
+	}
+
+	// Límite superior
+	if demoSquareY < squareSize/2 {
+		demoSquareY = squareSize / 2
+		demoVelocity.Y = 0
+	}
+
+	// =========================================================================
+	// DIBUJAR CUADRADO
+	// =========================================================================
+
+	// Color según input
 	squareColor := ColorHeroPrimary
 	if g.controller.IsAttackHeld() {
-		squareColor = color.RGBA{255, 0, 0, 255} // Rojo si ataca
+		squareColor = color.RGBA{255, 0, 0, 255}
 	} else if g.controller.IsDashHeld() {
-		squareColor = color.RGBA{255, 255, 0, 255} // Amarillo si dash
+		squareColor = color.RGBA{255, 255, 0, 255}
 	}
 
-	// Crear y dibujar cuadrado
-	square := ebiten.NewImage(50, 50)
+	// Dibujar
+	square := ebiten.NewImage(int(squareSize), int(squareSize))
 	square.Fill(squareColor)
 
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(demoSquareX-25, demoSquareY-25)
+	op.GeoM.Translate(demoSquareX-squareSize/2, demoSquareY-squareSize/2)
 	screen.DrawImage(square, op)
 
 	// Texto
 	ebitenutil.DebugPrintAt(
 		screen,
-		"▲ Muéveme con WASD o Stick",
+		"▲ Muéveme con WASD o Stick!",
 		int(demoSquareX)-80,
 		int(demoSquareY)+40,
 	)
+
+	// =========================================================================
+	// ESTADO Y DEBUG
+	// =========================================================================
+
+	// Hitbox final para verificaciones
+	finalRect := utils.NewRectangle(
+		demoSquareX-squareSize/2,
+		demoSquareY-squareSize/2,
+		squareSize,
+		squareSize,
+	)
+
+	onGround := g.arena.IsOnGround(finalRect)
+	touchingWall, wallSide := g.arena.IsTouchingWall(finalRect)
+
+	statusMsg := ""
+	if onGround {
+		statusMsg = "En el suelo"
+	}
+	if touchingWall {
+		if wallSide == -1 {
+			statusMsg += " | Pared IZQ"
+		} else {
+			statusMsg += " | Pared DER"
+		}
+	}
+
+	if statusMsg != "" {
+		ebitenutil.DebugPrintAt(screen, statusMsg, int(demoSquareX)-80, int(demoSquareY)+55)
+	}
+
+	// DEBUG
+	if g.config.ShowDebugInfo {
+		debugMsg := fmt.Sprintf("Pos: (%.0f, %.0f) | Suelo: %v | Vel: (%.1f, %.1f)",
+			demoSquareX, demoSquareY, onGround, demoVelocity.X, demoVelocity.Y)
+		ebitenutil.DebugPrintAt(screen, debugMsg, 10, 370)
+	}
 }
 
 func (g *Game) drawInputIndicators(screen *ebiten.Image) {
@@ -387,16 +521,9 @@ func (g *Game) drawInputIndicators(screen *ebiten.Image) {
 	startY := 550.0
 	spacing := 120.0
 
-	// Jump
 	g.drawButton(screen, startX, startY, "JUMP", g.controller.IsJumpHeld())
-
-	// Attack
 	g.drawButton(screen, startX+spacing, startY, "ATTACK", g.controller.IsAttackHeld())
-
-	// Dash
 	g.drawButton(screen, startX+spacing*2, startY, "DASH", g.controller.IsDashHeld())
-
-	// Special
 	g.drawButton(screen, startX+spacing*3, startY, "SPECIAL", g.controller.IsSpecialHeld())
 }
 
@@ -417,9 +544,9 @@ func (g *Game) drawButton(screen *ebiten.Image, x, y float64, label string, pres
 }
 
 // ============================================================================
-// ANIMACIÓN ORIGINAL (mantenida)
+// ANIMACIÓN ORIGINAL (ya no se usa, pero la dejamos por si acaso)
 // ============================================================================
-
+/*
 func (g *Game) drawAnimatedSquare(screen *ebiten.Image) {
 	centerX := float64(ScreenWidth / 2)
 	centerY := float64(ScreenHeight/2) + 100
@@ -444,3 +571,4 @@ func (g *Game) drawAnimatedSquare(screen *ebiten.Image) {
 		int(centerY+radius+30),
 	)
 }
+*/

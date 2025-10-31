@@ -1,111 +1,79 @@
+// internal/core/constants.go
 package core
 
-import "image/color"
+// Este archivo ahora solo re-exporta las constantes de config
+// para mantener compatibilidad
 
-// ============================================================================
-// CONFIGURACIÓN DE PANTALLA
-// ============================================================================
+import "github.com/MarcosBrindis/boss-arena-go/internal/config"
 
+// Re-exportar constantes de pantalla
 const (
-	// Resolución base (HD)
-	ScreenWidth  = 1280
-	ScreenHeight = 720
-
-	// Área jugable (con márgenes para UI)
-	PlayableWidth  = 1100
-	PlayableHeight = 650
-
-	// Performance
-	TargetTPS = 60 // Ticks por segundo (60 para 60 FPS)
+	ScreenWidth    = config.ScreenWidth
+	ScreenHeight   = config.ScreenHeight
+	PlayableWidth  = config.PlayableWidth
+	PlayableHeight = config.PlayableHeight
+	TargetTPS      = config.TargetTPS
 )
 
-// ============================================================================
-// FÍSICA GLOBAL
-// ============================================================================
-
+// Re-exportar constantes de física
 const (
-	Gravity           = 0.6  // Gravedad estándar
-	MaxFallSpeed      = 10.0 // Velocidad máxima de caída
-	GroundFriction    = 0.85 // Fricción en suelo
-	AirFriction       = 0.98 // Fricción en aire
-	WallSlideFriction = 0.95 // Fricción al deslizarse en pared
+	Gravity           = config.Gravity
+	MaxFallSpeed      = config.MaxFallSpeed
+	GroundFriction    = config.GroundFriction
+	AirFriction       = config.AirFriction
+	WallSlideFriction = config.WallSlideFriction
 )
 
-// ============================================================================
-// ARENA - DIMENSIONES
-// ============================================================================
-
+// Re-exportar constantes de arena
 const (
-	// Piso
-	FloorY      = 650 // Posición Y del piso
-	FloorHeight = 70  // Altura del piso
-
-	// Paredes escalonadas (izquierda)
-	WallLeftX = 50
-
-	// Paredes escalonadas (derecha)
-	WallRightX = 1230
-
-	// Escalones (altura desde el piso hacia arriba)
-	StepHeight = 150
+	FloorY      = config.FloorY
+	FloorHeight = config.FloorHeight
+	WallLeftX   = config.WallLeftX
+	WallRightX  = config.WallRightX
+	StepHeight  = config.StepHeight
 )
 
-// ============================================================================
-// COLORES - PALETA PRINCIPAL
-// ============================================================================
-
+// Re-exportar colores
 var (
-	// Arena
-	ColorBackground  = color.RGBA{26, 32, 44, 255}   // #1a202c - Negro azulado
-	ColorFloor       = color.RGBA{74, 85, 104, 255}  // #4a5568 - Gris medio
-	ColorFloorGrid   = color.RGBA{45, 55, 72, 255}   // #2d3748 - Gris oscuro
-	ColorWalls       = color.RGBA{90, 103, 216, 255} // #5a67d8 - Azul metálico
-	ColorWallsBorder = color.RGBA{76, 81, 191, 255}  // #4c51bf - Azul oscuro
+	ColorBackground  = config.ColorBackground
+	ColorFloor       = config.ColorFloor
+	ColorFloorGrid   = config.ColorFloorGrid
+	ColorWalls       = config.ColorWalls
+	ColorWallsBorder = config.ColorWallsBorder
 
-	// Héroe
-	ColorHeroPrimary   = color.RGBA{0, 217, 255, 255}   // #00d9ff - Cyan brillante
-	ColorHeroSecondary = color.RGBA{255, 255, 255, 255} // #ffffff - Blanco
-	ColorHeroDash      = color.RGBA{0, 128, 255, 128}   // #0080ff - Azul eléctrico (semi-transparente)
+	ColorHeroPrimary   = config.ColorHeroPrimary
+	ColorHeroSecondary = config.ColorHeroSecondary
+	ColorHeroDash      = config.ColorHeroDash
 
-	// Boss (cambia por fase)
-	ColorBossPhase1 = color.RGBA{255, 69, 0, 255}  // #ff4500 - Rojo fuego
-	ColorBossPhase2 = color.RGBA{255, 99, 71, 255} // #ff6347 - Naranja
-	ColorBossPhase3 = color.RGBA{255, 165, 0, 255} // #ffa500 - Amarillo
+	ColorBossPhase1 = config.ColorBossPhase1
+	ColorBossPhase2 = config.ColorBossPhase2
+	ColorBossPhase3 = config.ColorBossPhase3
 
-	// UI
-	ColorHPBarFull  = color.RGBA{72, 187, 120, 255}  // #48bb78 - Verde
-	ColorHPBarMid   = color.RGBA{246, 173, 85, 255}  // #f6ad55 - Naranja
-	ColorHPBarLow   = color.RGBA{252, 129, 129, 255} // #fc8181 - Rojo
-	ColorStaminaBar = color.RGBA{66, 153, 225, 255}  // #4299e1 - Azul
+	ColorHPBarFull  = config.ColorHPBarFull
+	ColorHPBarMid   = config.ColorHPBarMid
+	ColorHPBarLow   = config.ColorHPBarLow
+	ColorStaminaBar = config.ColorStaminaBar
 
-	// Efectos
-	ColorMeteor     = color.RGBA{139, 0, 0, 255}   // #8B0000 - Rojo sangre
-	ColorExplosion  = color.RGBA{255, 140, 0, 255} // #ff8c00 - Naranja fuego
-	ColorProjectile = color.RGBA{255, 0, 0, 255}   // #ff0000 - Rojo puro
+	ColorMeteor     = config.ColorMeteor
+	ColorExplosion  = config.ColorExplosion
+	ColorProjectile = config.ColorProjectile
 
-	// Debug
-	ColorDebugText = color.RGBA{0, 255, 0, 255} // Verde brillante
+	ColorDebugText = config.ColorDebugText
 )
 
-// ============================================================================
-// ESTADOS DEL JUEGO
-// ============================================================================
-
-type GameState int
+// Re-exportar tipos
+type GameState = config.GameState
 
 const (
-	StateMainMenu GameState = iota
-	StatePlaying
-	StatePaused
-	StateGameOver
-	StateVictory
+	StateMainMenu = config.StateMainMenu
+	StatePlaying  = config.StatePlaying
+	StatePaused   = config.StatePaused
+	StateGameOver = config.StateGameOver
+	StateVictory  = config.StateVictory
 )
 
-// ============================================================================
-// VERSIÓN
-// ============================================================================
-
+// Re-exportar versión
 const (
-	GameVersion = "v0.1.0-alpha"
-	GameTitle   = "Titan's Arena"
+	GameVersion = config.GameVersion
+	GameTitle   = config.GameTitle
 )
