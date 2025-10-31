@@ -6,7 +6,7 @@ import (
 	"image/color"
 	"time"
 
-	"github.com/MarcosBrindis/boss-arena-go/internal/entities" // ← NUEVO
+	"github.com/MarcosBrindis/boss-arena-go/internal/entities"
 	"github.com/MarcosBrindis/boss-arena-go/internal/input"
 	"github.com/MarcosBrindis/boss-arena-go/internal/utils"
 	"github.com/MarcosBrindis/boss-arena-go/internal/world"
@@ -26,8 +26,9 @@ type Game struct {
 	// World
 	arena *world.Arena
 
-	// Entities (NUEVO)
+	// Entities
 	player *entities.Player
+	boss   *entities.Boss // ← NUEVO
 
 	// Estado del juego
 	state     GameState
@@ -67,24 +68,64 @@ func NewGame() *Game {
 		cfg.CoyoteTimeFrames,
 	)
 
-	// Crear jugador (NUEVO)
+	// Crear jugador
 	player := entities.NewPlayer(
-		float64(ScreenWidth/2),
+		200, // X: Empieza a la izquierda
 		300,
 		controller,
 		arena,
 	)
 
+	// Crear boss (NUEVO)
+	boss := entities.NewBoss(
+		1000, // X: Empieza a la derecha
+		300,
+		arena,
+	)
+	boss.SetTarget(player) // El boss apunta al jugador
+
 	return &Game{
 		config:     cfg,
 		controller: controller,
 		arena:      arena,
-		player:     player, // ← NUEVO
+		player:     player,
+		boss:       boss, // ← NUEVO
 
 		state:      StatePlaying,
 		startTime:  time.Now(),
 		lastUpdate: time.Now(),
 	}
+}
+
+// RestartGame reinicia el juego a su estado inicial
+func (g *Game) RestartGame() {
+	// Resetear jugador
+	g.player.Position = utils.NewVector2(200, 300)
+	g.player.Velocity = utils.Zero()
+	g.player.Health = g.player.MaxHealth
+	g.player.Stamina = g.player.MaxStamina
+	g.player.State = entities.StateIdle
+	g.player.CanDash = true
+	g.player.JumpCount = 0
+
+	// Resetear boss
+	g.boss.Position = utils.NewVector2(1000, 300)
+	g.boss.Velocity = utils.Zero()
+	g.boss.Health = g.boss.MaxHealth
+	g.boss.State = entities.BossStateIdle
+	g.boss.Phase = entities.Phase1
+	g.boss.IsInvulnerable = false
+
+	// Resetear cooldowns del boss
+	g.boss.AttackCooldown = 0
+	g.boss.SlamCooldown = 0
+	g.boss.ChargeCooldown = 0
+	g.boss.RoarCooldown = 0
+
+	// Actualizar colores del boss según fase 1
+
+	// Volver a estado jugando
+	g.state = StatePlaying
 }
 
 // Update actualiza la lógica del juego
@@ -122,8 +163,14 @@ func (g *Game) Update() error {
 	// Actualizar arena
 	g.arena.Update()
 
-	// Actualizar jugador (NUEVO)
+	// Actualizar jugador
 	g.player.Update()
+
+	// Actualizar boss (NUEVO)
+	g.boss.Update()
+
+	// Detectar colisiones jugador-boss (NUEVO)
+	g.checkPlayerBossCollisions()
 
 	// Actualizar según el estado actual
 	switch g.state {
@@ -205,7 +252,15 @@ func (g *Game) updateMainMenu() {
 }
 
 func (g *Game) updatePlaying() {
-	// La lógica ya se maneja en player.Update()
+	// Verificar victoria
+	if g.boss.State == entities.BossStateDead && g.state != StateVictory {
+		g.state = StateVictory
+	}
+
+	// Verificar derrota
+	if g.player.State == entities.StateDead && g.state != StateGameOver {
+		g.state = StateGameOver
+	}
 }
 
 func (g *Game) updatePaused() {
@@ -213,11 +268,143 @@ func (g *Game) updatePaused() {
 }
 
 func (g *Game) updateGameOver() {
-	// TODO
+	// Reiniciar con R (teclado) o Start (gamepad)
+	if ebiten.IsKeyPressed(ebiten.KeyR) || g.controller.IsSpecialPressed() {
+		g.RestartGame()
+	}
 }
 
 func (g *Game) updateVictory() {
-	// TODO
+	// Reiniciar con R (teclado) o Start (gamepad)
+	if ebiten.IsKeyPressed(ebiten.KeyR) || g.controller.IsSpecialPressed() {
+		g.RestartGame()
+	}
+}
+
+// ============================================================================
+// SISTEMA DE COLISIONES JUGADOR-BOSS (NUEVO)
+// ============================================================================
+
+func (g *Game) checkPlayerBossCollisions() {
+	// No verificar si alguno está muerto
+	if g.player.State == entities.StateDead || g.boss.State == entities.BossStateDead {
+		return
+	}
+
+	// 1. Verificar si el jugador golpea al boss
+	g.checkPlayerAttacksBoss()
+
+	// 2. Verificar si el boss golpea al jugador
+	g.checkBossAttacksPlayer()
+}
+
+// checkPlayerAttacksBoss verifica si el jugador está atacando al boss
+func (g *Game) checkPlayerAttacksBoss() {
+	bossHurtbox := g.boss.GetHurtbox()
+
+	// Ataque normal
+	attackHitbox := g.player.GetAttackHitbox()
+	if attackHitbox != nil && attackHitbox.Intersects(bossHurtbox) {
+		damage := g.player.GetAttackDamage()
+		if g.boss.TakeDamage(damage) {
+			g.controller.Vibrate(100, 0.5)
+		}
+	}
+
+	// Down Air Attack (MEJORADO)
+	downAirHitbox := g.player.GetDownAirAttackHitbox()
+	if downAirHitbox != nil && downAirHitbox.Intersects(bossHurtbox) {
+		damage := g.player.GetDownAirAttackDamage()
+		if g.boss.TakeDamage(damage) {
+			// Feedback más fuerte
+			g.controller.Vibrate(150, 0.6)
+
+			// POGO EFFECT MEJORADO: Rebote más alto
+			g.player.Velocity.Y = -13 // Era -10, ahora igual al salto normal
+			g.player.State = entities.StateJumping
+			g.player.AttackTimeLeft = 0
+			g.player.JumpCount = 1 // Resetear contador de saltos (permite doble salto después)
+
+			// Recuperar stamina como recompensa
+			g.player.Stamina += 10
+			if g.player.Stamina > g.player.MaxStamina {
+				g.player.Stamina = g.player.MaxStamina
+			}
+
+			// ========================================================
+			// CONTADOR DE POGOS CONSECUTIVOS (NUEVO)
+			// ========================================================
+
+			// Incrementar contador de pogos del boss
+			g.boss.ConsecutivePogos++
+
+			// Si recibió 3 pogos consecutivos, hacer Slam como contramedida
+			if g.boss.ConsecutivePogos >= 3 {
+				// Forzar Slam si no está en cooldown
+				if g.boss.SlamCooldown == 0 && g.boss.IsOnGround {
+					g.boss.NextAction = entities.BossStateSlam
+					g.boss.DecisionTimer = 0 // Ejecutar inmediatamente
+				}
+				g.boss.ConsecutivePogos = 0 // Resetear contador
+			}
+		}
+	}
+}
+
+// checkBossAttacksPlayer verifica si el boss está atacando al jugador
+func (g *Game) checkBossAttacksPlayer() {
+	playerHurtbox := g.player.GetHurtbox()
+
+	// Verificar ataque básico
+	attackHitbox := g.boss.GetAttackHitbox()
+	if attackHitbox != nil && attackHitbox.Intersects(playerHurtbox) {
+		// Calcular knockback
+		direction := g.player.Position.Sub(g.boss.Position).Normalize()
+		knockback := direction.Mul(8)
+
+		g.player.TakeDamage(g.boss.Damage, knockback)
+	}
+
+	// Verificar Slam
+	slamHitbox := g.boss.GetSlamHitbox()
+	if slamHitbox != nil && slamHitbox.Intersects(playerHurtbox) {
+		direction := g.player.Position.Sub(g.boss.Position).Normalize()
+		knockback := direction.Mul(12) // Knockback más fuerte
+
+		g.player.TakeDamage(g.boss.Damage*2, knockback)
+	}
+
+	// Verificar Charge
+	chargeHitbox := g.boss.GetChargeHitbox()
+	if chargeHitbox != nil && chargeHitbox.Intersects(playerHurtbox) {
+		direction := g.boss.ChargeDirection
+		knockback := direction.Mul(8)
+
+		g.player.TakeDamage(g.boss.Damage*2, knockback)
+	}
+
+	// =========================================================================
+	// DAÑO POR CONTACTO (NUEVO)
+	// =========================================================================
+
+	// Si el jugador toca al boss (y el boss no está muerto/aturdido/en transición)
+	if g.boss.State != entities.BossStateDead &&
+		g.boss.State != entities.BossStateStunned &&
+		g.boss.State != entities.BossStateTransition {
+
+		bossHitbox := g.boss.GetHitbox()
+
+		if bossHitbox.Intersects(playerHurtbox) {
+			// Daño pequeño por contacto (5 HP)
+			contactDamage := 5
+
+			// Knockback suave alejándose del boss
+			direction := g.player.Position.Sub(g.boss.Position).Normalize()
+			knockback := direction.Mul(6) // Knockback moderado
+
+			g.player.TakeDamage(contactDamage, knockback)
+		}
+	}
 }
 
 // ============================================================================
@@ -232,91 +419,36 @@ func (g *Game) drawPlaying(screen *ebiten.Image) {
 	// 1. Dibujar arena
 	g.arena.Draw(screen)
 
-	// 2. Dibujar jugador (NUEVO)
+	// 2. Dibujar boss (NUEVO - dibujarlo primero para que esté detrás)
+	g.boss.Draw(screen)
+
+	// 3. Dibujar jugador
 	g.player.Draw(screen)
 
-	// 2.5 DEBUG: Dibujar área de detección de paredes (NUEVO)
+	// 4. Debug: Hitboxes (NUEVO)
 	if g.config.ShowDebugInfo {
-		hitbox := g.player.GetHitbox()
-		margin := 8.0
-
-		// Área de detección izquierda (rojo)
-		testRectLeft := utils.NewRectangle(
-			hitbox.X-margin,
-			hitbox.Y+5,
-			hitbox.Width+margin,
-			hitbox.Height-10,
-		)
-		vector.StrokeRect(
-			screen,
-			float32(testRectLeft.X),
-			float32(testRectLeft.Y),
-			float32(testRectLeft.Width),
-			float32(testRectLeft.Height),
-			2,
-			color.RGBA{255, 0, 0, 150},
-			false,
-		)
-
-		// Área de detección derecha (verde)
-		testRectRight := utils.NewRectangle(
-			hitbox.X,
-			hitbox.Y+5,
-			hitbox.Width+margin,
-			hitbox.Height-10,
-		)
-		vector.StrokeRect(
-			screen,
-			float32(testRectRight.X),
-			float32(testRectRight.Y),
-			float32(testRectRight.Width),
-			float32(testRectRight.Height),
-			2,
-			color.RGBA{0, 255, 0, 150},
-			false,
-		)
+		g.drawDebugHitboxes(screen)
 	}
 
-	// 3. Dibujar hitbox de ataque (debug)
-	if g.config.ShowDebugInfo {
-		attackHitbox := g.player.GetAttackHitbox()
-		if attackHitbox != nil {
-			// Dibujar hitbox de ataque en rojo semi-transparente
-			vector.StrokeRect(
-				screen,
-				float32(attackHitbox.X),
-				float32(attackHitbox.Y),
-				float32(attackHitbox.Width),
-				float32(attackHitbox.Height),
-				2,
-				color.RGBA{255, 0, 0, 150},
-				false,
-			)
-		}
-	}
-
-	// 4. Mensaje actualizado
-	msg := "🎮 Módulo 4: Player completado!\n\n"
-	msg += "Controles:\n"
+	// 5. Mensaje actualizado
+	msg := "🐉 Módulo 5: Boss Entity!\n\n"
+	msg += "🎮 Controles:\n"
 	msg += "  WASD/Stick = Mover\n"
-	msg += "  Space/✕    = Saltar (doble salto)\n"
-	msg += "  Z/⬜        = Atacar (combo x3) 💥\n"
-	msg += "  X/⚪/R2     = Dash 🚀\n\n"
-	msg += "Mecánicas:\n"
-	msg += "  ✅ Salto doble (20 stamina)\n"
-	msg += "  ✅ Wall-climb (15 stamina/salto) 🧗\n"
-	msg += "  ✅ Wall-slide (gratis)\n"
-	msg += "  ✅ Dash 360° (25 stamina)\n"
-	msg += "  ✅ Combo x3 (10/15/20 stamina)\n"
-	msg += "  ✅ Coyote time\n"
-	msg += "  ✅ Jump buffer\n\n"
-	msg += "💡 Stamina se regenera más rápido en el suelo\n"
-	msg += "⏭️  Esperando Módulo 5 (Boss)..."
+	msg += "  Space/✕    = Saltar\n"
+	msg += "  Z/⬜        = Atacar\n"
+	msg += "  X/⚪/R2     = Dash\n\n"
+	msg += "🐉 Boss:\n"
+	msg += "  ✅ 3 Fases (color cambia)\n"
+	msg += "  ✅ 4 Ataques diferentes\n"
+	msg += "  ✅ IA reactiva\n"
+	msg += "  ✅ Aumenta velocidad por fase\n\n"
+	msg += "⚔️  ¡Derrota al Titan!"
 
 	ebitenutil.DebugPrintAt(screen, msg, 20, 20)
 
-	// 5. HUD del jugador
+	// 6. HUD del jugador y boss
 	g.drawPlayerHUD(screen)
+	g.drawBossHUD(screen) // ← NUEVO
 }
 
 func (g *Game) drawPaused(screen *ebiten.Image) {
@@ -331,15 +463,38 @@ func (g *Game) drawPaused(screen *ebiten.Image) {
 }
 
 func (g *Game) drawGameOver(screen *ebiten.Image) {
-	// TODO
+	g.drawPlaying(screen)
+
+	overlay := ebiten.NewImage(ScreenWidth, ScreenHeight)
+	overlay.Fill(color.RGBA{0, 0, 0, 200})
+	screen.DrawImage(overlay, nil)
+
+	msg := "💀 GAME OVER\n\n"
+	msg += "Has sido derrotado por el Titan\n\n"
+	msg += "Presiona R (teclado) o\n"
+	msg += "△/Y (gamepad) para reintentar"
+
+	ebitenutil.DebugPrintAt(screen, msg, ScreenWidth/2-120, ScreenHeight/2-40)
 }
 
 func (g *Game) drawVictory(screen *ebiten.Image) {
-	// TODO
+	g.drawPlaying(screen)
+
+	overlay := ebiten.NewImage(ScreenWidth, ScreenHeight)
+	overlay.Fill(color.RGBA{255, 215, 0, 100})
+	screen.DrawImage(overlay, nil)
+
+	msg := "🏆 ¡VICTORIA!\n\n"
+	msg += "¡Derrotaste al Titan!\n\n"
+	msg += "Módulo 5 completado 🎉\n\n"
+	msg += "Presiona R (teclado) o\n"
+	msg += "△/Y (gamepad) para jugar otra vez"
+
+	ebitenutil.DebugPrintAt(screen, msg, ScreenWidth/2-130, ScreenHeight/2-50)
 }
 
 // ============================================================================
-// HUD DEL JUGADOR
+// HUD
 // ============================================================================
 
 func (g *Game) drawPlayerHUD(screen *ebiten.Image) {
@@ -356,18 +511,16 @@ func (g *Game) drawPlayerHUD(screen *ebiten.Image) {
 	// Barra de salud
 	g.drawBar(screen, hudX+10, hudY+10, 280, 20,
 		float64(g.player.Health)/float64(g.player.MaxHealth),
-		color.RGBA{255, 0, 0, 255},
-		"HP")
+		g.getHealthColor(float64(g.player.Health)/float64(g.player.MaxHealth)),
+		"PLAYER HP")
 
-	// Barra de stamina (cambia de color si está baja)
+	// Barra de stamina
 	staminaPercent := g.player.Stamina / g.player.MaxStamina
 	staminaColor := color.RGBA{0, 200, 255, 255}
 
 	if staminaPercent < 0.3 {
-		// Stamina baja = color rojo
 		staminaColor = color.RGBA{255, 100, 100, 255}
 	} else if staminaPercent < 0.5 {
-		// Stamina media = color amarillo
 		staminaColor = color.RGBA{255, 200, 0, 255}
 	}
 
@@ -377,11 +530,8 @@ func (g *Game) drawPlayerHUD(screen *ebiten.Image) {
 		"STAMINA")
 
 	// Info de combo
-	// Info de combo
 	if g.player.ComboCount > 0 {
 		comboText := fmt.Sprintf("COMBO x%d", g.player.ComboCount)
-
-		// Dibujar texto de combo
 		ebitenutil.DebugPrintAt(screen, comboText, int(hudX+200), int(hudY+60))
 	}
 
@@ -391,6 +541,38 @@ func (g *Game) drawPlayerHUD(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, warningText, int(hudX+10), int(hudY+60))
 	}
 }
+
+// drawBossHUD dibuja el HUD del boss (NUEVO)
+func (g *Game) drawBossHUD(screen *ebiten.Image) {
+	// Barra grande en la parte superior
+	barWidth := float32(600)
+	barHeight := float32(30)
+	barX := float32(ScreenWidth/2) - barWidth/2
+	barY := float32(10)
+
+	// Fondo
+	hudBg := ebiten.NewImage(int(barWidth+20), int(barHeight+40))
+	hudBg.Fill(color.RGBA{0, 0, 0, 180})
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(barX-10), float64(barY-10))
+	screen.DrawImage(hudBg, op)
+
+	// Nombre del boss
+	bossName := fmt.Sprintf("🐉 TITAN - %s", g.boss.Phase.String())
+	ebitenutil.DebugPrintAt(screen, bossName, int(barX), int(barY))
+
+	// Barra de vida
+	healthPercent := float64(g.boss.Health) / float64(g.boss.MaxHealth)
+	g.drawBar(screen, barX, barY+20, barWidth, barHeight,
+		healthPercent,
+		g.getHealthColor(healthPercent),
+		"")
+
+	// Texto de HP
+	hpText := fmt.Sprintf("%d / %d", g.boss.Health, g.boss.MaxHealth)
+	ebitenutil.DebugPrintAt(screen, hpText, int(barX+barWidth/2-30), int(barY+27))
+}
+
 func (g *Game) drawBar(screen *ebiten.Image, x, y, width, height float32, fill float64, col color.RGBA, label string) {
 	// Fondo
 	vector.DrawFilledRect(screen, x, y, width, height, color.RGBA{50, 50, 50, 255}, false)
@@ -400,10 +582,70 @@ func (g *Game) drawBar(screen *ebiten.Image, x, y, width, height float32, fill f
 	vector.DrawFilledRect(screen, x, y, fillWidth, height, col, false)
 
 	// Borde
-	vector.StrokeRect(screen, x, y, width, height, 1, color.White, false)
+	vector.StrokeRect(screen, x, y, width, height, 2, color.White, false)
 
 	// Label
-	ebitenutil.DebugPrintAt(screen, label, int(x), int(y-15))
+	if label != "" {
+		ebitenutil.DebugPrintAt(screen, label, int(x), int(y-15))
+	}
+}
+
+func (g *Game) getHealthColor(percent float64) color.RGBA {
+	if percent > 0.66 {
+		return color.RGBA{0, 255, 0, 255}
+	} else if percent > 0.33 {
+		return color.RGBA{255, 200, 0, 255}
+	} else {
+		return color.RGBA{255, 0, 0, 255}
+	}
+}
+
+// drawDebugHitboxes dibuja los hitboxes en modo debug (NUEVO)
+func (g *Game) drawDebugHitboxes(screen *ebiten.Image) {
+	// Hitbox de ataque del jugador
+	playerAttack := g.player.GetAttackHitbox()
+	if playerAttack != nil {
+		vector.StrokeRect(
+			screen,
+			float32(playerAttack.X),
+			float32(playerAttack.Y),
+			float32(playerAttack.Width),
+			float32(playerAttack.Height),
+			2,
+			color.RGBA{0, 255, 0, 150},
+			false,
+		)
+	}
+
+	// Hitbox de ataque del boss
+	bossAttack := g.boss.GetAttackHitbox()
+	if bossAttack != nil {
+		vector.StrokeRect(
+			screen,
+			float32(bossAttack.X),
+			float32(bossAttack.Y),
+			float32(bossAttack.Width),
+			float32(bossAttack.Height),
+			2,
+			color.RGBA{255, 0, 0, 150},
+			false,
+		)
+	}
+
+	// Hitbox de slam
+	slamHitbox := g.boss.GetSlamHitbox()
+	if slamHitbox != nil {
+		vector.StrokeRect(
+			screen,
+			float32(slamHitbox.X),
+			float32(slamHitbox.Y),
+			float32(slamHitbox.Width),
+			float32(slamHitbox.Height),
+			2,
+			color.RGBA{255, 100, 0, 150},
+			false,
+		)
+	}
 }
 
 // ============================================================================
@@ -421,17 +663,18 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
 			"FPS: %.1f / TPS: %.1f\n"+
 			"Frame: %d\n"+
-			"Update: %.2fms\n"+
-			"Draw: %.2fms\n"+
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
 			"PLAYER:\n"+
+			"HP: %d/%d\n"+
 			"State: %s\n"+
 			"Pos: (%.0f, %.0f)\n"+
-			"Vel: (%.1f, %.1f)\n"+
-			"OnGround: %v\n"+
-			"OnWall: %v\n"+
-			"JumpCount: %d/%d\n"+
-			"CanDash: %v\n"+
+			"━━━━━━━━━━━━━━━━━━━━━━\n"+
+			"BOSS:\n"+
+			"HP: %d/%d\n"+
+			"Phase: %s\n"+
+			"State: %s\n"+
+			"Pos: (%.0f, %.0f)\n"+
+			"Pogos: %d/3\n"+
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
 			"INPUT: %s\n"+
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
@@ -443,43 +686,24 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 		g.fps,
 		g.tps,
 		g.frame,
-		float64(g.updateDuration.Microseconds())/1000.0,
-		float64(g.drawDuration.Microseconds())/1000.0,
+		g.player.Health,
+		g.player.MaxHealth,
 		g.player.State,
 		g.player.Position.X,
 		g.player.Position.Y,
-		g.player.Velocity.X,
-		g.player.Velocity.Y,
-		g.player.IsOnGround,
-		g.player.IsTouchingWall,
-		g.player.JumpCount,
-		g.player.MaxJumps,
-		g.player.CanDash,
+		g.boss.Health,
+		g.boss.MaxHealth,
+		g.boss.Phase,
+		g.boss.State,
+		g.boss.Position.X,
+		g.boss.Position.Y,
+		g.boss.ConsecutivePogos,
 		inputMethod,
 	)
 
-	debugBg := ebiten.NewImage(300, 400)
+	debugBg := ebiten.NewImage(300, 450)
 	debugBg.Fill(color.RGBA{0, 0, 0, 180})
 	screen.DrawImage(debugBg, nil)
 
 	ebitenutil.DebugPrint(screen, debugText)
 }
-
-/*
-func (g *Game) getStateName() string {
-	switch g.state {
-	case StateMainMenu:
-		return "MainMenu"
-	case StatePlaying:
-		return "Playing"
-	case StatePaused:
-		return "Paused"
-	case StateGameOver:
-		return "GameOver"
-	case StateVictory:
-		return "Victory"
-	default:
-		return "Unknown"
-	}
-}
-*/

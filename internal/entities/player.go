@@ -102,15 +102,15 @@ type PlayerConfig struct {
 func DefaultPlayerConfig() PlayerConfig {
 	return PlayerConfig{
 		// Movimiento
-		MoveSpeed:    6.0,
-		MaxSpeed:     8.0,
+		MoveSpeed:    7.0,
+		MaxSpeed:     9.0,
 		Acceleration: 0.8,
 		Deceleration: 0.9,
 		AirControl:   0.6,
 
 		// Salto
-		JumpForce:        12.0,
-		DoubleJumpForce:  10.0,
+		JumpForce:        13.0,
+		DoubleJumpForce:  11.0,
 		WallJumpForceX:   10.0,
 		WallJumpForceY:   12.0,
 		CoyoteTimeFrames: 6,
@@ -267,6 +267,11 @@ func (p *Player) updateCollisionState() {
 
 // updateState actualiza el estado del jugador
 func (p *Player) updateState() {
+	// Down Air Attack termina por tiempo
+	if p.State == StateDownAirAttack && p.AttackTimeLeft <= 0 {
+		p.State = StateFalling
+		return
+	}
 	// Estados que terminan por tiempo
 	if p.State == StateDashing && p.DashTimeLeft <= 0 {
 		// Dash terminado, volver a estado normal
@@ -365,9 +370,9 @@ func (p *Player) TakeDamage(damage int, knockback utils.Vector2) {
 		return
 	}
 
-	// Knockback
+	// Knockback SIN cambiar a estado Hurt (MEJORADO)
 	p.Velocity = knockback
-	p.State = StateHurt
+	// NO cambiar estado, mantener control
 
 	// Vibración al recibir daño
 	p.controller.Vibrate(200, 0.6)

@@ -12,6 +12,7 @@ const (
 	StateWallJumping
 	StateDashing
 	StateAttacking
+	StateDownAirAttack
 	StateHurt
 	StateDead
 )
@@ -35,6 +36,8 @@ func (s PlayerState) String() string {
 		return "Dashing"
 	case StateAttacking:
 		return "Attacking"
+	case StateDownAirAttack:
+		return "DownAirAttack"
 	case StateHurt:
 		return "Hurt"
 	case StateDead:
@@ -55,10 +58,6 @@ func (s PlayerState) CanTransitionTo(newState PlayerState) bool {
 	case StateAttacking:
 		// Durante ataque, solo puede ir a hurt, dead, o terminar ataque
 		return newState == StateHurt || newState == StateDead || newState == StateIdle
-
-	case StateHurt:
-		// Durante hurt, solo puede ir a dead o recuperarse
-		return newState == StateDead || newState == StateIdle || newState == StateFalling
 
 	case StateDead:
 		// Muerto es estado final

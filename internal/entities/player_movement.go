@@ -238,6 +238,13 @@ func (p *Player) applyPhysics() {
 		return
 	}
 
+	// Durante Down Air Attack, mantener caída rápida (NUEVO)
+	if p.State == StateDownAirAttack {
+		p.Velocity.Y = 8
+		p.Velocity.X *= 0.95 // Reducir velocidad horizontal
+		return
+	}
+
 	// Gravedad
 	if !p.IsOnGround {
 		// Wall sliding reduce la gravedad
