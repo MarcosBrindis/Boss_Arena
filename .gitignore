@@ -1,0 +1,38 @@
+
+---
+
+### **Archivo 7: `.gitignore`**
+```gitignore
+# Binarios compilados
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Archivos de test
+*.test
+*.out
+
+# Archivos de Go
+*.sum
+vendor/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporal
+tmp/
+temp/
+
+# Logs
+*.log
