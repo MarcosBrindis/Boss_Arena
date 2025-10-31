@@ -1,3 +1,4 @@
+// internal/core/game.go
 package core
 
 import (
@@ -5,11 +6,13 @@ import (
 	"image/color"
 	"time"
 
+	"github.com/MarcosBrindis/boss-arena-go/internal/entities" // ← NUEVO
 	"github.com/MarcosBrindis/boss-arena-go/internal/input"
 	"github.com/MarcosBrindis/boss-arena-go/internal/utils"
 	"github.com/MarcosBrindis/boss-arena-go/internal/world"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // Game implementa la interfaz ebiten.Game
@@ -20,8 +23,11 @@ type Game struct {
 	// Input System
 	controller *input.Controller
 
-	// World (NUEVO)
+	// World
 	arena *world.Arena
+
+	// Entities (NUEVO)
+	player *entities.Player
 
 	// Estado del juego
 	state     GameState
@@ -51,15 +57,29 @@ type Game struct {
 func NewGame() *Game {
 	cfg := DefaultConfig()
 
+	// Crear arena
+	arena := world.NewArena(ScreenWidth, ScreenHeight)
+
+	// Crear controller
+	controller := input.NewController(
+		cfg.GamepadDeadzone,
+		cfg.JumpBufferFrames,
+		cfg.CoyoteTimeFrames,
+	)
+
+	// Crear jugador (NUEVO)
+	player := entities.NewPlayer(
+		float64(ScreenWidth/2),
+		300,
+		controller,
+		arena,
+	)
+
 	return &Game{
-		config: cfg,
-		controller: input.NewController(
-			cfg.GamepadDeadzone,
-			cfg.JumpBufferFrames,
-			cfg.CoyoteTimeFrames,
-		),
-		// Crear arena (NUEVO)
-		arena: world.NewArena(ScreenWidth, ScreenHeight),
+		config:     cfg,
+		controller: controller,
+		arena:      arena,
+		player:     player, // ← NUEVO
 
 		state:      StatePlaying,
 		startTime:  time.Now(),
@@ -82,7 +102,7 @@ func (g *Game) Update() error {
 	// Incrementar contador de frames
 	g.frame++
 
-	// Calcular TPS/FPS cada segundo
+	// Calcular TPS/FPS
 	if g.frame%60 == 0 {
 		g.tps = ebiten.ActualTPS()
 		g.fps = ebiten.ActualFPS()
@@ -99,8 +119,11 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-	// Actualizar arena (NUEVO)
+	// Actualizar arena
 	g.arena.Update()
+
+	// Actualizar jugador (NUEVO)
+	g.player.Update()
 
 	// Actualizar según el estado actual
 	switch g.state {
@@ -123,9 +146,6 @@ func (g *Game) Update() error {
 // Draw dibuja el juego en pantalla
 func (g *Game) Draw(screen *ebiten.Image) {
 	start := time.Now()
-
-	// Limpiar pantalla (ya no es necesario, la arena dibuja el fondo)
-	// screen.Fill(ColorBackground)
 
 	// Dibujar según el estado actual
 	switch g.state {
@@ -185,7 +205,7 @@ func (g *Game) updateMainMenu() {
 }
 
 func (g *Game) updatePlaying() {
-	// TODO: En Módulo 4 implementaremos el jugador
+	// La lógica ya se maneja en player.Update()
 }
 
 func (g *Game) updatePaused() {
@@ -209,25 +229,94 @@ func (g *Game) drawMainMenu(screen *ebiten.Image) {
 }
 
 func (g *Game) drawPlaying(screen *ebiten.Image) {
-	// 1. Dibujar arena (NUEVO)
+	// 1. Dibujar arena
 	g.arena.Draw(screen)
 
-	// 2. Mensaje actualizado
-	msg := "🏛️ Módulo 3: Arena completada!\n\n"
-	msg += "✅ Paredes escalonadas estilo Mega Man X\n"
-	msg += "✅ Fondo con efecto parallax\n"
-	msg += "✅ Sistema de colisiones AABB\n"
-	msg += "✅ Grid decorativo en el piso\n\n"
-	msg += "⏭️  Esperando Módulo 4 (Player)..."
+	// 2. Dibujar jugador (NUEVO)
+	g.player.Draw(screen)
 
-	// Dibujar en el centro superior
-	ebitenutil.DebugPrintAt(screen, msg, ScreenWidth/2-200, 50)
+	// 2.5 DEBUG: Dibujar área de detección de paredes (NUEVO)
+	if g.config.ShowDebugInfo {
+		hitbox := g.player.GetHitbox()
+		margin := 8.0
 
-	// 3. Cuadrado controlable con colisiones (NUEVO)
-	g.drawControllableSquareWithCollisions(screen)
+		// Área de detección izquierda (rojo)
+		testRectLeft := utils.NewRectangle(
+			hitbox.X-margin,
+			hitbox.Y+5,
+			hitbox.Width+margin,
+			hitbox.Height-10,
+		)
+		vector.StrokeRect(
+			screen,
+			float32(testRectLeft.X),
+			float32(testRectLeft.Y),
+			float32(testRectLeft.Width),
+			float32(testRectLeft.Height),
+			2,
+			color.RGBA{255, 0, 0, 150},
+			false,
+		)
 
-	// 4. Indicadores de input
-	g.drawInputIndicators(screen)
+		// Área de detección derecha (verde)
+		testRectRight := utils.NewRectangle(
+			hitbox.X,
+			hitbox.Y+5,
+			hitbox.Width+margin,
+			hitbox.Height-10,
+		)
+		vector.StrokeRect(
+			screen,
+			float32(testRectRight.X),
+			float32(testRectRight.Y),
+			float32(testRectRight.Width),
+			float32(testRectRight.Height),
+			2,
+			color.RGBA{0, 255, 0, 150},
+			false,
+		)
+	}
+
+	// 3. Dibujar hitbox de ataque (debug)
+	if g.config.ShowDebugInfo {
+		attackHitbox := g.player.GetAttackHitbox()
+		if attackHitbox != nil {
+			// Dibujar hitbox de ataque en rojo semi-transparente
+			vector.StrokeRect(
+				screen,
+				float32(attackHitbox.X),
+				float32(attackHitbox.Y),
+				float32(attackHitbox.Width),
+				float32(attackHitbox.Height),
+				2,
+				color.RGBA{255, 0, 0, 150},
+				false,
+			)
+		}
+	}
+
+	// 4. Mensaje actualizado
+	msg := "🎮 Módulo 4: Player completado!\n\n"
+	msg += "Controles:\n"
+	msg += "  WASD/Stick = Mover\n"
+	msg += "  Space/✕    = Saltar (doble salto)\n"
+	msg += "  Z/⬜        = Atacar (combo x3) 💥\n"
+	msg += "  X/⚪/R2     = Dash 🚀\n\n"
+	msg += "Mecánicas:\n"
+	msg += "  ✅ Salto doble (20 stamina)\n"
+	msg += "  ✅ Wall-climb (15 stamina/salto) 🧗\n"
+	msg += "  ✅ Wall-slide (gratis)\n"
+	msg += "  ✅ Dash 360° (25 stamina)\n"
+	msg += "  ✅ Combo x3 (10/15/20 stamina)\n"
+	msg += "  ✅ Coyote time\n"
+	msg += "  ✅ Jump buffer\n\n"
+	msg += "💡 Stamina se regenera más rápido en el suelo\n"
+	msg += "⏭️  Esperando Módulo 5 (Boss)..."
+
+	ebitenutil.DebugPrintAt(screen, msg, 20, 20)
+
+	// 5. HUD del jugador
+	g.drawPlayerHUD(screen)
 }
 
 func (g *Game) drawPaused(screen *ebiten.Image) {
@@ -250,6 +339,74 @@ func (g *Game) drawVictory(screen *ebiten.Image) {
 }
 
 // ============================================================================
+// HUD DEL JUGADOR
+// ============================================================================
+
+func (g *Game) drawPlayerHUD(screen *ebiten.Image) {
+	hudX := float32(20)
+	hudY := float32(ScreenHeight - 100)
+
+	// Fondo del HUD
+	hudBg := ebiten.NewImage(300, 80)
+	hudBg.Fill(color.RGBA{0, 0, 0, 150})
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(hudX), float64(hudY))
+	screen.DrawImage(hudBg, op)
+
+	// Barra de salud
+	g.drawBar(screen, hudX+10, hudY+10, 280, 20,
+		float64(g.player.Health)/float64(g.player.MaxHealth),
+		color.RGBA{255, 0, 0, 255},
+		"HP")
+
+	// Barra de stamina (cambia de color si está baja)
+	staminaPercent := g.player.Stamina / g.player.MaxStamina
+	staminaColor := color.RGBA{0, 200, 255, 255}
+
+	if staminaPercent < 0.3 {
+		// Stamina baja = color rojo
+		staminaColor = color.RGBA{255, 100, 100, 255}
+	} else if staminaPercent < 0.5 {
+		// Stamina media = color amarillo
+		staminaColor = color.RGBA{255, 200, 0, 255}
+	}
+
+	g.drawBar(screen, hudX+10, hudY+40, 280, 15,
+		staminaPercent,
+		staminaColor,
+		"STAMINA")
+
+	// Info de combo
+	// Info de combo
+	if g.player.ComboCount > 0 {
+		comboText := fmt.Sprintf("COMBO x%d", g.player.ComboCount)
+
+		// Dibujar texto de combo
+		ebitenutil.DebugPrintAt(screen, comboText, int(hudX+200), int(hudY+60))
+	}
+
+	// Advertencia de stamina baja
+	if staminaPercent < 0.2 {
+		warningText := "⚠️ STAMINA BAJA"
+		ebitenutil.DebugPrintAt(screen, warningText, int(hudX+10), int(hudY+60))
+	}
+}
+func (g *Game) drawBar(screen *ebiten.Image, x, y, width, height float32, fill float64, col color.RGBA, label string) {
+	// Fondo
+	vector.DrawFilledRect(screen, x, y, width, height, color.RGBA{50, 50, 50, 255}, false)
+
+	// Relleno
+	fillWidth := float32(fill) * width
+	vector.DrawFilledRect(screen, x, y, fillWidth, height, col, false)
+
+	// Borde
+	vector.StrokeRect(screen, x, y, width, height, 1, color.White, false)
+
+	// Label
+	ebitenutil.DebugPrintAt(screen, label, int(x), int(y-15))
+}
+
+// ============================================================================
 // DEBUG INFO
 // ============================================================================
 
@@ -266,14 +423,17 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 			"Frame: %d\n"+
 			"Update: %.2fms\n"+
 			"Draw: %.2fms\n"+
-			"Delta: %.4fs\n"+
-			"State: %s\n"+
-			"Paused: %v\n"+
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
-			"INPUT:\n"+
-			"Method: %s\n"+
-			"Horizontal: %.2f\n"+
-			"Vertical: %.2f\n"+
+			"PLAYER:\n"+
+			"State: %s\n"+
+			"Pos: (%.0f, %.0f)\n"+
+			"Vel: (%.1f, %.1f)\n"+
+			"OnGround: %v\n"+
+			"OnWall: %v\n"+
+			"JumpCount: %d/%d\n"+
+			"CanDash: %v\n"+
+			"━━━━━━━━━━━━━━━━━━━━━━\n"+
+			"INPUT: %s\n"+
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
 			"F3: Toggle Debug\n"+
 			"F11: Fullscreen\n"+
@@ -285,21 +445,27 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 		g.frame,
 		float64(g.updateDuration.Microseconds())/1000.0,
 		float64(g.drawDuration.Microseconds())/1000.0,
-		g.deltaTime,
-		g.getStateName(),
-		g.isPaused,
+		g.player.State,
+		g.player.Position.X,
+		g.player.Position.Y,
+		g.player.Velocity.X,
+		g.player.Velocity.Y,
+		g.player.IsOnGround,
+		g.player.IsTouchingWall,
+		g.player.JumpCount,
+		g.player.MaxJumps,
+		g.player.CanDash,
 		inputMethod,
-		g.controller.GetHorizontalAxis(),
-		g.controller.GetVerticalAxis(),
 	)
 
-	debugBg := ebiten.NewImage(350, 320)
+	debugBg := ebiten.NewImage(300, 400)
 	debugBg.Fill(color.RGBA{0, 0, 0, 180})
 	screen.DrawImage(debugBg, nil)
 
 	ebitenutil.DebugPrint(screen, debugText)
 }
 
+/*
 func (g *Game) getStateName() string {
 	switch g.state {
 	case StateMainMenu:
@@ -315,260 +481,5 @@ func (g *Game) getStateName() string {
 	default:
 		return "Unknown"
 	}
-}
-
-// ============================================================================
-// DEMO DE INPUT + COLISIONES (NUEVO)
-// ============================================================================
-
-var (
-	demoSquareX  float64 = 640
-	demoSquareY  float64 = 575 // 600 (piso) - 25 (mitad del cuadrado)
-	demoVelocity utils.Vector2
-)
-
-func (g *Game) drawControllableSquareWithCollisions(screen *ebiten.Image) {
-	squareSize := 50.0
-	speed := 4.0
-	gravity := 0.5
-	maxFallSpeed := 10.0
-
-	// Input horizontal
-	inputX := g.controller.GetHorizontalAxis()
-
-	// Aplicar input con fricción
-	if inputX != 0 {
-		demoVelocity.X = inputX * speed
-	} else {
-		demoVelocity.X *= 0.85
-		if utils.Abs(demoVelocity.X) < 0.1 {
-			demoVelocity.X = 0
-		}
-	}
-
-	// Crear hitbox ANTES de mover
-	squareRect := utils.NewRectangle(
-		demoSquareX-squareSize/2,
-		demoSquareY-squareSize/2,
-		squareSize,
-		squareSize,
-	)
-
-	// Verificar si está en suelo
-	isOnGround := g.arena.IsOnGround(squareRect)
-
-	// Aplicar gravedad SOLO si no está en suelo
-	if !isOnGround {
-		demoVelocity.Y += gravity
-		if demoVelocity.Y > maxFallSpeed {
-			demoVelocity.Y = maxFallSpeed
-		}
-	} else {
-		demoVelocity.Y = 0
-	}
-
-	// =========================================================================
-	// MOVIMIENTO HORIZONTAL CON COLISIONES
-	// =========================================================================
-
-	// Intentar mover horizontalmente
-	newX := demoSquareX + demoVelocity.X
-
-	// Crear hitbox en la nueva posición X
-	testRect := utils.NewRectangle(
-		newX-squareSize/2,
-		demoSquareY-squareSize/2,
-		squareSize,
-		squareSize,
-	)
-
-	// Verificar colisión horizontal
-	collidesX, _ := g.arena.CheckCollision(testRect)
-	if !collidesX {
-		// No hay colisión, permitir movimiento
-		demoSquareX = newX
-	} else {
-		// Hay colisión, detener velocidad horizontal
-		demoVelocity.X = 0
-	}
-
-	// =========================================================================
-	// MOVIMIENTO VERTICAL CON COLISIONES
-	// =========================================================================
-
-	// Intentar mover verticalmente
-	newY := demoSquareY + demoVelocity.Y
-
-	// Crear hitbox en la nueva posición Y
-	testRect = utils.NewRectangle(
-		demoSquareX-squareSize/2,
-		newY-squareSize/2,
-		squareSize,
-		squareSize,
-	)
-
-	// Verificar colisión vertical
-	collidesY, _ := g.arena.CheckCollision(testRect)
-	if !collidesY {
-		// No hay colisión, permitir movimiento
-		demoSquareY = newY
-	} else {
-		// Hay colisión, detener velocidad vertical
-		demoVelocity.Y = 0
-	}
-
-	// =========================================================================
-	// LÍMITES DE PANTALLA
-	// =========================================================================
-
-	floorY := g.arena.GetFloorY()
-
-	// Límite inferior: Si cae muy abajo, resetear
-	if demoSquareY > floorY+100 {
-		demoSquareX = float64(ScreenWidth / 2)
-		demoSquareY = 575
-		demoVelocity = utils.Zero()
-	}
-
-	// Límites laterales: No salir de pantalla
-	minX := squareSize/2 + 60 // Margen para la pared
-	maxX := float64(ScreenWidth) - squareSize/2 - 60
-
-	if demoSquareX < minX {
-		demoSquareX = minX
-		demoVelocity.X = 0
-	}
-	if demoSquareX > maxX {
-		demoSquareX = maxX
-		demoVelocity.X = 0
-	}
-
-	// Límite superior
-	if demoSquareY < squareSize/2 {
-		demoSquareY = squareSize / 2
-		demoVelocity.Y = 0
-	}
-
-	// =========================================================================
-	// DIBUJAR CUADRADO
-	// =========================================================================
-
-	// Color según input
-	squareColor := ColorHeroPrimary
-	if g.controller.IsAttackHeld() {
-		squareColor = color.RGBA{255, 0, 0, 255}
-	} else if g.controller.IsDashHeld() {
-		squareColor = color.RGBA{255, 255, 0, 255}
-	}
-
-	// Dibujar
-	square := ebiten.NewImage(int(squareSize), int(squareSize))
-	square.Fill(squareColor)
-
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(demoSquareX-squareSize/2, demoSquareY-squareSize/2)
-	screen.DrawImage(square, op)
-
-	// Texto
-	ebitenutil.DebugPrintAt(
-		screen,
-		"▲ Muéveme con WASD o Stick!",
-		int(demoSquareX)-80,
-		int(demoSquareY)+40,
-	)
-
-	// =========================================================================
-	// ESTADO Y DEBUG
-	// =========================================================================
-
-	// Hitbox final para verificaciones
-	finalRect := utils.NewRectangle(
-		demoSquareX-squareSize/2,
-		demoSquareY-squareSize/2,
-		squareSize,
-		squareSize,
-	)
-
-	onGround := g.arena.IsOnGround(finalRect)
-	touchingWall, wallSide := g.arena.IsTouchingWall(finalRect)
-
-	statusMsg := ""
-	if onGround {
-		statusMsg = "En el suelo"
-	}
-	if touchingWall {
-		if wallSide == -1 {
-			statusMsg += " | Pared IZQ"
-		} else {
-			statusMsg += " | Pared DER"
-		}
-	}
-
-	if statusMsg != "" {
-		ebitenutil.DebugPrintAt(screen, statusMsg, int(demoSquareX)-80, int(demoSquareY)+55)
-	}
-
-	// DEBUG
-	if g.config.ShowDebugInfo {
-		debugMsg := fmt.Sprintf("Pos: (%.0f, %.0f) | Suelo: %v | Vel: (%.1f, %.1f)",
-			demoSquareX, demoSquareY, onGround, demoVelocity.X, demoVelocity.Y)
-		ebitenutil.DebugPrintAt(screen, debugMsg, 10, 370)
-	}
-}
-
-func (g *Game) drawInputIndicators(screen *ebiten.Image) {
-	startX := 400.0
-	startY := 550.0
-	spacing := 120.0
-
-	g.drawButton(screen, startX, startY, "JUMP", g.controller.IsJumpHeld())
-	g.drawButton(screen, startX+spacing, startY, "ATTACK", g.controller.IsAttackHeld())
-	g.drawButton(screen, startX+spacing*2, startY, "DASH", g.controller.IsDashHeld())
-	g.drawButton(screen, startX+spacing*3, startY, "SPECIAL", g.controller.IsSpecialHeld())
-}
-
-func (g *Game) drawButton(screen *ebiten.Image, x, y float64, label string, pressed bool) {
-	buttonColor := color.RGBA{60, 60, 80, 255}
-	if pressed {
-		buttonColor = ColorHeroPrimary
-	}
-
-	button := ebiten.NewImage(100, 40)
-	button.Fill(buttonColor)
-
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(x, y)
-	screen.DrawImage(button, op)
-
-	ebitenutil.DebugPrintAt(screen, label, int(x)+20, int(y)+15)
-}
-
-// ============================================================================
-// ANIMACIÓN ORIGINAL (ya no se usa, pero la dejamos por si acaso)
-// ============================================================================
-/*
-func (g *Game) drawAnimatedSquare(screen *ebiten.Image) {
-	centerX := float64(ScreenWidth / 2)
-	centerY := float64(ScreenHeight/2) + 100
-	radius := 80.0
-
-	angle := float64(g.frame) * 0.05
-
-	squareX := int(centerX + radius*math.Cos(angle))
-	squareY := int(centerY + radius*math.Sin(angle))
-
-	square := ebiten.NewImage(50, 50)
-	square.Fill(ColorHeroPrimary)
-
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(squareX-25), float64(squareY-25))
-	screen.DrawImage(square, op)
-
-	ebitenutil.DebugPrintAt(
-		screen,
-		"▲ Cuadrado animado (verificando 60 FPS)",
-		ScreenWidth/2-120,
-		int(centerY+radius+30),
-	)
 }
 */

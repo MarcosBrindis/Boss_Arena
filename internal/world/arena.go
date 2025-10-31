@@ -67,32 +67,32 @@ func (a *Arena) createFloor() {
 // createWalls crea las paredes escalonadas (estilo Mega Man X)
 func (a *Arena) createWalls() {
 	wallThickness := 50.0
-	baseFloorY := float64(config.FloorY) - 50 // Piso en Y=600
-	wallHeight := 450.0                       // Altura de las paredes
+	baseFloorY := float64(config.FloorY) - 50 // 600
+	wallHeight := baseFloorY
 
 	// ========================================================================
-	// PARED IZQUIERDA SÓLIDA (sin escalones por ahora)
+	// PARED IZQUIERDA SÓLIDA
 	// ========================================================================
 	a.wallsLeft = []*WallSegment{
 		NewWallSegment(
-			0,                     // X: Pegada al borde izquierdo
-			baseFloorY-wallHeight, // Y: Desde arriba
-			wallThickness,         // Ancho de la pared
-			wallHeight,            // Altura completa
+			0,                     // X = 0 (pegada al borde)
+			baseFloorY-wallHeight, // Y = 150
+			wallThickness,         // Width = 50
+			wallHeight,            // Height = 450
 			a.wallColor,
 			a.wallBorderColor,
 		),
 	}
 
 	// ========================================================================
-	// PARED DERECHA SÓLIDA (sin escalones por ahora)
+	// PARED DERECHA SÓLIDA
 	// ========================================================================
 	a.wallsRight = []*WallSegment{
 		NewWallSegment(
-			float64(a.width)-wallThickness, // X: Pegada al borde derecho
-			baseFloorY-wallHeight,          // Y: Desde arriba
-			wallThickness,                  // Ancho de la pared
-			wallHeight,                     // Altura completa
+			float64(a.width)-wallThickness, // X = 1230 (1280 - 50)
+			baseFloorY-wallHeight,          // Y = 150
+			wallThickness,                  // Width = 50
+			wallHeight,                     // Height = 450
 			a.wallColor,
 			a.wallBorderColor,
 		),
@@ -205,20 +205,60 @@ func (a *Arena) IsOnGround(rect utils.Rectangle) bool {
 	return false
 }
 
+// IsTouchingWall verifica si un rectángulo está tocando una pared lateral
 func (a *Arena) IsTouchingWall(rect utils.Rectangle) (bool, int) {
-	testRectLeft := utils.NewRectangle(rect.X-2, rect.Y, rect.Width, rect.Height)
-	testRectRight := utils.NewRectangle(rect.X+2, rect.Y, rect.Width, rect.Height)
+	// Configuración de detección
+	margin := 8.0
 
-	for _, wall := range a.wallsLeft {
-		if wall.Intersects(testRectLeft) {
-			return true, -1
+	// Crear áreas de detección expandidas
+	testRectLeft := utils.NewRectangle(
+		rect.X-margin,
+		rect.Y+5,
+		rect.Width+margin,
+		rect.Height-10,
+	)
+
+	testRectRight := utils.NewRectangle(
+		rect.X,
+		rect.Y+5,
+		rect.Width+margin,
+		rect.Height-10,
+	)
+
+	// =========================================================================
+	// MÉTODO 1: Verificar contra las paredes en los arrays
+	// =========================================================================
+
+	// Verificar paredes izquierdas
+	if len(a.wallsLeft) > 0 {
+		for _, wall := range a.wallsLeft {
+			if wall != nil && wall.Intersects(testRectLeft) {
+				return true, -1
+			}
 		}
 	}
 
-	for _, wall := range a.wallsRight {
-		if wall.Intersects(testRectRight) {
-			return true, 1
+	// Verificar paredes derechas
+	if len(a.wallsRight) > 0 {
+		for _, wall := range a.wallsRight {
+			if wall != nil && wall.Intersects(testRectRight) {
+				return true, 1
+			}
 		}
+	}
+
+	// =========================================================================
+	// MÉTODO 2: Fallback - Verificar contra posiciones fijas (más robusto)
+	// =========================================================================
+
+	// Pared izquierda: X entre 0 y 60
+	if rect.Left() <= 60 {
+		return true, -1
+	}
+
+	// Pared derecha: X entre 1220 y 1280
+	if rect.Right() >= float64(a.width)-60 {
+		return true, 1
 	}
 
 	return false, 0
