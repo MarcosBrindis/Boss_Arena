@@ -168,3 +168,126 @@ func (p *Player) GetDownAirAttackHitbox() *utils.Rectangle {
 func (p *Player) GetDownAirAttackDamage() int {
 	return 20 // Más daño que ataque normal
 }
+
+// handleShootInput maneja el input de disparo (NUEVO - Módulo 7)
+func (p *Player) handleShootInput() {
+	// Verificar input de disparo (Q en teclado, L1 en gamepad)
+	isShootPressed := p.controller.IsShootPressed()
+
+	// Si se soltó el botón después de cargar
+	if !isShootPressed && p.isChargingShot {
+		// Disparo cargado liberado
+		if p.chargeTime >= 30 {
+			p.performChargedShot()
+		}
+		p.isChargingShot = false
+		p.chargeTime = 0
+		return
+	}
+
+	// Si NO se está presionando, no hacer nada más
+	if !isShootPressed {
+		return
+	}
+
+	// No disparar si está atacando cuerpo a cuerpo
+	if p.State == StateAttacking || p.State == StateDownAirAttack {
+		return
+	}
+
+	// Si recién se presionó (frame 1)
+	if !p.isChargingShot && p.chargeTime == 0 {
+		// Disparar proyectil básico inmediatamente
+		p.RequestBasicShot()
+	}
+
+	// Empezar a cargar
+	if !p.isChargingShot {
+		p.isChargingShot = true
+		p.chargeTime = 0
+	}
+
+	p.chargeTime++
+
+	// Disparo cargado automático (si se mantiene presionado)
+	if p.chargeTime >= 30 {
+		p.performChargedShot()
+		p.isChargingShot = false
+		p.chargeTime = 0
+	}
+}
+
+// performChargedShot realiza un disparo cargado
+func (p *Player) performChargedShot() {
+	// Verificar stamina
+	staminaCost := 25.0
+	if p.Stamina < staminaCost {
+		p.controller.Vibrate(50, 0.1)
+		return
+	}
+
+	// Consumir stamina
+	p.Stamina -= staminaCost
+
+	// Señal para que el game cree el proyectil
+	p.wantsToShoot = true
+	p.shotType = 1 // 1 = Charged
+
+	// Vibración
+	p.controller.Vibrate(150, 0.3)
+}
+
+// RequestBasicShot solicita disparar proyectil básico
+func (p *Player) RequestBasicShot() {
+	// Verificar cooldown
+	if p.shootCooldown > 0 {
+		return
+	}
+
+	// Verificar stamina
+	staminaCost := 10.0
+	if p.Stamina < staminaCost {
+		p.controller.Vibrate(50, 0.1)
+		return
+	}
+
+	// Consumir stamina
+	p.Stamina -= staminaCost
+
+	// Señal para que el game cree el proyectil
+	p.wantsToShoot = true
+	p.shotType = 0 // 0 = Basic
+
+	// Cooldown de 15 frames (0.25 segundos)
+	p.shootCooldown = 15
+
+	// Vibración
+	p.controller.Vibrate(80, 0.2)
+}
+
+// WantsToShoot retorna si el jugador quiere disparar
+func (p *Player) WantsToShoot() (bool, int) {
+	wants := p.wantsToShoot
+	shotType := p.shotType
+
+	// Resetear flag
+	p.wantsToShoot = false
+
+	return wants, shotType
+}
+
+// GetShootDirection retorna la dirección del disparo
+func (p *Player) GetShootDirection() utils.Vector2 {
+	// Usar stick derecho del gamepad si está disponible
+	rightX, rightY := p.controller.GetRightStickAxis()
+
+	if utils.Abs(rightX) > 0.3 || utils.Abs(rightY) > 0.3 {
+		return utils.NewVector2(rightX, rightY).Normalize()
+	}
+
+	// Fallback: dirección horizontal según hacia donde mira
+	if p.FacingRight {
+		return utils.NewVector2(1, 0)
+	}
+	return utils.NewVector2(-1, 0)
+}

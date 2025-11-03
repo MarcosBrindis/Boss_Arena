@@ -12,6 +12,7 @@ const (
 	BossStateSlam       // Ataque de golpe en el suelo
 	BossStateCharge     // Ataque de carga
 	BossStateRoar       // Rugido (stun a jugador)
+	BossStateShooting   // Disparo de proyectil
 	BossStateStunned    // Aturdido (vulnerable)
 	BossStateTransition // Transición de fase
 	BossStateDead
@@ -36,6 +37,8 @@ func (s BossState) String() string {
 		return "Charge"
 	case BossStateRoar:
 		return "Roar"
+	case BossStateShooting:
+		return "Shooting"
 	case BossStateStunned:
 		return "Stunned"
 	case BossStateTransition:

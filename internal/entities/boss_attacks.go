@@ -146,3 +146,37 @@ func (b *Boss) GetChargeHitbox() *utils.Rectangle {
 	hitbox := b.GetHitbox()
 	return &hitbox
 }
+
+// performShoot realiza un disparo (NUEVO - Módulo 7)
+func (b *Boss) performShoot() {
+	if b.ShootCooldown > 0 || b.Target == nil {
+		return
+	}
+
+	b.State = BossStateShooting
+	b.ShootDelay = 20    // 0.33 segundos antes de disparar
+	b.ShootCooldown = 90 // 1.5 segundos de cooldown
+
+	// Fase 3: Dispara misiles homing
+	if b.Phase == Phase3 {
+		b.ProjectileType = 1 // Missile
+	} else {
+		b.ProjectileType = 0 // Fireball
+	}
+
+	b.WantsToShoot = true
+	b.Velocity = utils.Zero() // Detenerse al disparar
+}
+
+// GetShootDirection retorna la dirección del disparo del boss
+func (b *Boss) GetShootDirection() utils.Vector2 {
+	if b.Target == nil {
+		if b.FacingRight {
+			return utils.NewVector2(1, 0)
+		}
+		return utils.NewVector2(-1, 0)
+	}
+
+	// Apuntar hacia el jugador
+	return b.Target.Position.Sub(b.Position).Normalize()
+}

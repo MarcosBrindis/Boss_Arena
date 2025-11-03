@@ -1,6 +1,7 @@
 package input
 
 import (
+	"math"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -347,4 +348,41 @@ func abs(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// IsShootPressed verifica si se presionó el botón de disparo
+func (c *Controller) IsShootPressed() bool {
+	// Q en teclado
+	if ebiten.IsKeyPressed(ebiten.KeyQ) {
+		return true
+	}
+
+	// L1 en gamepad (PlayStation: L1, Xbox: LB)
+	if c.IsGamepadConnected() {
+		if ebiten.IsStandardGamepadButtonPressed(c.gamepadID, ebiten.StandardGamepadButtonFrontTopLeft) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetRightStickAxis retorna el eje del stick derecho (para apuntar)
+func (c *Controller) GetRightStickAxis() (float64, float64) {
+	if !c.IsGamepadConnected() {
+		return 0, 0
+	}
+
+	x := ebiten.StandardGamepadAxisValue(c.gamepadID, ebiten.StandardGamepadAxisRightStickHorizontal)
+	y := ebiten.StandardGamepadAxisValue(c.gamepadID, ebiten.StandardGamepadAxisRightStickVertical)
+
+	// Aplicar deadzone
+	if math.Abs(x) < c.deadzone {
+		x = 0
+	}
+	if math.Abs(y) < c.deadzone {
+		y = 0
+	}
+
+	return x, y
 }

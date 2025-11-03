@@ -58,6 +58,13 @@ type Player struct {
 	// Colores (para el placeholder antes de sprites)
 	colorPrimary   color.RGBA
 	colorSecondary color.RGBA
+
+	// Disparo ( Módulo 7)
+	isChargingShot bool
+	chargeTime     int
+	wantsToShoot   bool
+	shotType       int // 0 = basic, 1 = charged
+	shootCooldown  int
 }
 
 // PlayerConfig contiene la configuración del jugador
@@ -186,6 +193,9 @@ func (p *Player) Update() {
 	// 4. Procesar input
 	p.handleInput()
 
+	// Manejar input de disparo (NUEVO)
+	p.handleShootInput()
+
 	// 5. Aplicar física
 	p.applyPhysics()
 
@@ -225,6 +235,11 @@ func (p *Player) updateTimers() {
 		if p.AttackTimeLeft == 0 {
 			p.State = StateIdle
 		}
+	}
+
+	// Cooldown de disparo
+	if p.shootCooldown > 0 {
+		p.shootCooldown--
 	}
 
 	// Combo

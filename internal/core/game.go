@@ -1,17 +1,21 @@
+// internal/core/game.go
 package core
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/MarcosBrindis/boss-arena-go/internal/ai"
 	"github.com/MarcosBrindis/boss-arena-go/internal/audio"
 	"github.com/MarcosBrindis/boss-arena-go/internal/combat"
 	"github.com/MarcosBrindis/boss-arena-go/internal/effects"
 	"github.com/MarcosBrindis/boss-arena-go/internal/entities"
 	"github.com/MarcosBrindis/boss-arena-go/internal/input"
+	"github.com/MarcosBrindis/boss-arena-go/internal/projectiles"
 	"github.com/MarcosBrindis/boss-arena-go/internal/utils"
 	"github.com/MarcosBrindis/boss-arena-go/internal/world"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -34,18 +38,26 @@ type Game struct {
 	player *entities.Player
 	boss   *entities.Boss
 
-	// Combat System (NUEVO)
+	// Combat System
 	eventSystem   *combat.EventSystem
 	damageCalc    *combat.DamageCalculator
 	effectManager *combat.EffectManager
 
-	// Visual Effects (NUEVO)
+	// Visual Effects
 	particleSystem *effects.ParticleSystem
 	screenShake    *effects.ScreenShake
 	hitStop        *effects.HitStop
 
-	// Audio System (NUEVO)
+	// Audio System
 	soundSystem *audio.SoundSystem
+
+	// Projectile System (NUEVO - Módulo 7)
+	projectileManager *projectiles.ProjectileManager
+	dodgeSystem       *ai.DodgeSystem
+
+	// Contexto (NUEVO - Módulo 7)
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// Estado del juego
 	state     GameState
@@ -102,12 +114,17 @@ func NewGame() *Game {
 	boss.SetTarget(player)
 
 	// ========================================================================
-	// CREAR SISTEMAS DE COMBATE (NUEVO)
+	// CREAR CONTEXTO (Módulo 7)
+	// ========================================================================
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// ========================================================================
+	// CREAR SISTEMAS DE COMBATE
 	// ========================================================================
 
 	// Event System (con buffer de 100 eventos)
 	eventSystem := combat.NewEventSystem(100)
-	eventSystem.Start() // ← Inicia la goroutine
+	eventSystem.Start()
 
 	// Damage Calculator
 	damageCalc := combat.NewDamageCalculator()
@@ -127,14 +144,25 @@ func NewGame() *Game {
 	// Sound System
 	soundSystem := audio.NewSoundSystem()
 
+	// ========================================================================
+	// CREAR SISTEMA DE PROYECTILES (Módulo 7)
+	// ========================================================================
+
+	// Projectile Manager (pool de 50 proyectiles, sin worker pool por ahora)
+	projectileManager := projectiles.NewProjectileManager(50, true)
+
+	// Dodge System (IA de esquiva para el boss)
+	dodgeSystem := ai.NewDodgeSystem()
+
 	game := &Game{
 		config:     cfg,
 		controller: controller,
 		arena:      arena,
-		player:     player,
-		boss:       boss,
 
-		// Combat Systems (NUEVO)
+		player: player,
+		boss:   boss,
+
+		// Combat Systems
 		eventSystem:    eventSystem,
 		damageCalc:     damageCalc,
 		effectManager:  effectManager,
@@ -143,13 +171,21 @@ func NewGame() *Game {
 		hitStop:        hitStop,
 		soundSystem:    soundSystem,
 
+		// Projectile System (NUEVO)
+		projectileManager: projectileManager,
+		dodgeSystem:       dodgeSystem,
+
+		// Context (NUEVO)
+		ctx:    ctx,
+		cancel: cancel,
+
 		state:      StatePlaying,
 		startTime:  time.Now(),
 		lastUpdate: time.Now(),
 	}
 
 	// ========================================================================
-	// REGISTRAR LISTENERS DE EVENTOS (NUEVO)
+	// REGISTRAR LISTENERS DE EVENTOS
 	// ========================================================================
 	game.setupEventListeners()
 
@@ -163,7 +199,7 @@ func (g *Game) setupEventListeners() {
 		// Spawn partículas en la posición del impacto
 		particleColor := color.RGBA{255, 100, 100, 255}
 		if event.IsCritical {
-			particleColor = color.RGBA{255, 255, 0, 255} // Amarillo para críticos
+			particleColor = color.RGBA{255, 255, 0, 255}
 		}
 		g.particleSystem.Emit(event.Position, 5, particleColor)
 
@@ -239,7 +275,7 @@ func (g *Game) Update() error {
 	g.hitStop.Update()
 	if g.hitStop.ShouldFreeze() {
 		g.updateDuration = time.Since(start)
-		return nil // No actualizar nada durante freeze frame
+		return nil
 	}
 
 	// ========================================================================
@@ -255,10 +291,35 @@ func (g *Game) Update() error {
 	// Actualizar boss
 	g.boss.Update()
 
+	// ========================================================================
+	// ACTUALIZAR PROYECTILES (NUEVO - Módulo 7)
+	// ========================================================================
+	g.projectileManager.Update()
+
+	// ========================================================================
+	// MANEJAR DISPARO DEL JUGADOR (NUEVO - Módulo 7)
+	// ========================================================================
+	g.handlePlayerShooting()
+
+	// ========================================================================
+	// MANEJAR DISPARO DEL BOSS (NUEVO - Módulo 7)
+	// ========================================================================
+	g.handleBossShooting()
+
+	// ========================================================================
+	// VERIFICAR IA DE ESQUIVA DEL BOSS (NUEVO - Módulo 7)
+	// ========================================================================
+	g.updateBossDodge()
+
 	// Detectar colisiones jugador-boss
 	g.checkPlayerBossCollisions()
 
-	// Actualizar efectos visuales (NUEVO)
+	// ========================================================================
+	// DETECTAR COLISIONES DE PROYECTILES (NUEVO - Módulo 7)
+	// ========================================================================
+	g.checkProjectileCollisions()
+
+	// Actualizar efectos visuales
 	g.effectManager.Update()
 	g.particleSystem.Update()
 	g.screenShake.Update()
@@ -286,7 +347,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	start := time.Now()
 
 	// ========================================================================
-	// APLICAR SCREEN SHAKE (NUEVO)
+	// APLICAR SCREEN SHAKE
 	// ========================================================================
 	shakeOffset := g.screenShake.GetOffset()
 
@@ -295,8 +356,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Si hay shake, aplicar offset
 	if g.screenShake.IsActive() {
-		// Nota: En una implementación completa, aplicaríamos el offset
-		// a una cámara. Por ahora es visual placeholder.
 		_ = shakeOffset
 	}
 
@@ -352,16 +411,20 @@ func (g *Game) RestartGame() {
 	g.boss.SlamCooldown = 0
 	g.boss.ChargeCooldown = 0
 	g.boss.RoarCooldown = 0
+	g.boss.ShootCooldown = 0
 
 	// Actualizar colores del boss según fase 1
 	g.boss.UpdateColor()
 
-	// Limpiar efectos (NUEVO)
+	// Limpiar efectos
 	g.particleSystem.Clear()
 	g.effectManager.Clear()
 	g.screenShake.Stop()
 
-	// Resetear estadísticas (NUEVO)
+	// Limpiar proyectiles (NUEVO)
+	g.projectileManager.Clear()
+
+	// Resetear estadísticas
 	g.eventSystem.ResetStats()
 
 	// Volver a estado jugando
@@ -372,11 +435,22 @@ func (g *Game) RestartGame() {
 func (g *Game) Cleanup() {
 	var wg sync.WaitGroup
 
+	// Detener Event System
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		g.eventSystem.Stop()
 	}()
+
+	// Detener Projectile Manager (NUEVO)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		g.projectileManager.Cleanup()
+	}()
+
+	// Cancelar contexto (NUEVO)
+	g.cancel()
 
 	// Esperar que todas las goroutines terminen
 	wg.Wait()
@@ -453,6 +527,194 @@ func (g *Game) updateVictory() {
 }
 
 // ============================================================================
+// SISTEMA DE PROYECTILES (NUEVO - Módulo 7)
+// ============================================================================
+
+// handlePlayerShooting maneja el disparo del jugador
+func (g *Game) handlePlayerShooting() {
+	wants, shotType := g.player.WantsToShoot()
+	if !wants {
+		return
+	}
+
+	// Obtener posición y dirección
+	shootPos := g.player.Position
+	shootDir := g.player.GetShootDirection()
+
+	// Ajustar posición de origen (delante del jugador)
+	shootPos = shootPos.Add(shootDir.Mul(g.player.Size.X / 2))
+
+	// Determinar tipo de proyectil
+	var projType projectiles.ProjectileType
+	if shotType == 1 {
+		projType = projectiles.ProjectilePlayerCharged
+	} else {
+		projType = projectiles.ProjectilePlayerBasic
+	}
+
+	// Crear proyectil
+	g.projectileManager.Spawn(projType, shootPos, shootDir, "player")
+
+	// Sonido
+	g.soundSystem.PlaySound(audio.SoundSlash)
+
+	// Efecto visual en la posición de disparo
+	g.particleSystem.Emit(shootPos, 3, color.RGBA{0, 200, 255, 255})
+}
+
+// handleBossShooting maneja el disparo del boss
+func (g *Game) handleBossShooting() {
+	if !g.boss.WantsToShoot {
+		return
+	}
+
+	// Verificar delay (para animación)
+	if g.boss.ShootDelay > 0 {
+		return
+	}
+
+	// Resetear flag
+	g.boss.WantsToShoot = false
+
+	// Obtener posición y dirección
+	shootPos := g.boss.Position
+	shootDir := g.boss.GetShootDirection()
+
+	// Ajustar posición de origen
+	shootPos = shootPos.Add(shootDir.Mul(g.boss.Size.X / 2))
+
+	// Determinar tipo de proyectil
+	var projType projectiles.ProjectileType
+	if g.boss.ProjectileType == 1 {
+		// Missile homing (Fase 3)
+		projType = projectiles.ProjectileBossMissile
+
+		// Crear proyectil con target
+		proj := g.projectileManager.Spawn(projType, shootPos, shootDir, "boss")
+		proj.Target = &g.player.Position
+
+	} else {
+		// Fireball normal (Fase 2)
+		projType = projectiles.ProjectileBossFireball
+		g.projectileManager.Spawn(projType, shootPos, shootDir, "boss")
+	}
+
+	// Sonido
+	g.soundSystem.PlaySound(audio.SoundExplosion)
+
+	// Efecto visual
+	g.particleSystem.Emit(shootPos, 5, color.RGBA{255, 69, 0, 255})
+
+	// Screen shake
+	g.screenShake.Start(3, 5)
+}
+
+// updateBossDodge actualiza la IA de esquiva del boss
+func (g *Game) updateBossDodge() {
+	// Solo en Fase 2 y 3
+	if g.boss.Phase == entities.Phase1 {
+		return
+	}
+
+	// Obtener proyectiles del jugador
+	playerProjectiles := g.projectileManager.GetProjectilesByOwner("player")
+
+	// Verificar si debe esquivar
+	shouldDodge, dodgeDir := g.dodgeSystem.ShouldDodge(g.boss.Position, playerProjectiles)
+
+	if shouldDodge && g.boss.IsOnGround {
+		// Aplicar velocidad de esquiva
+		g.boss.Velocity.X += dodgeDir.X
+
+		// Limitar velocidad máxima
+		maxDodgeSpeed := 8.0
+		if utils.Abs(g.boss.Velocity.X) > maxDodgeSpeed {
+			if g.boss.Velocity.X > 0 {
+				g.boss.Velocity.X = maxDodgeSpeed
+			} else {
+				g.boss.Velocity.X = -maxDodgeSpeed
+			}
+		}
+	}
+}
+
+// checkProjectileCollisions verifica colisiones de proyectiles
+func (g *Game) checkProjectileCollisions() {
+	projectiles := g.projectileManager.GetActiveProjectiles()
+
+	for _, proj := range projectiles {
+		if !proj.IsActive {
+			continue
+		}
+
+		// Colisión con arena (paredes/suelo)
+		projHitbox := proj.GetHitbox()
+		collides, _ := g.arena.CheckCollision(projHitbox)
+		if collides {
+			proj.IsActive = false
+			// Efecto de impacto en pared
+			g.particleSystem.Emit(proj.Position, 3, proj.Color)
+			continue
+		}
+
+		// Proyectiles del jugador vs Boss
+		if proj.Owner == "player" {
+			bossHurtbox := g.boss.GetHurtbox()
+			if projHitbox.Intersects(bossHurtbox) {
+				// Aplicar daño
+				if g.boss.TakeDamage(proj.Damage) {
+					// Efectos
+					g.particleSystem.Emit(proj.Position, 8, color.RGBA{255, 100, 100, 255})
+					g.screenShake.Start(float64(proj.Damage)/10.0, 5)
+					g.controller.Vibrate(100, 0.4)
+
+					// Evento
+					g.eventSystem.EmitEvent(combat.CombatEvent{
+						Type:     combat.EventDamageDealt,
+						Damage:   proj.Damage,
+						Position: proj.Position,
+						Attacker: "player",
+						Target:   "boss",
+					})
+				}
+
+				// Desactivar proyectil
+				proj.IsActive = false
+			}
+		}
+
+		// Proyectiles del boss vs Jugador
+		if proj.Owner == "boss" {
+			playerHurtbox := g.player.GetHurtbox()
+			if projHitbox.Intersects(playerHurtbox) {
+				// Calcular knockback
+				direction := proj.Velocity.Normalize()
+				knockback := direction.Mul(10)
+
+				// Aplicar daño
+				g.player.TakeDamage(proj.Damage, knockback)
+
+				// Efectos
+				g.particleSystem.Emit(proj.Position, 8, color.RGBA{255, 0, 0, 255})
+				g.screenShake.Start(float64(proj.Damage)/10.0, 5)
+
+				// Evento
+				g.eventSystem.EmitEvent(combat.CombatEvent{
+					Type:     combat.EventDamageDealt,
+					Damage:   proj.Damage,
+					Position: proj.Position,
+					Attacker: "boss",
+					Target:   "player",
+				})
+
+				// Desactivar proyectil
+				proj.IsActive = false
+			}
+		}
+	}
+}
+
+// ============================================================================
 // SISTEMA DE COLISIONES JUGADOR-BOSS
 // ============================================================================
 
@@ -479,7 +741,7 @@ func (g *Game) checkPlayerAttacksBoss() {
 		baseDamage := g.player.GetAttackDamage()
 
 		// Calcular daño con sistema nuevo
-		isCritical := g.damageCalc.RollCritical(0.15) // 15% de crítico
+		isCritical := g.damageCalc.RollCritical(0.15)
 		comboMultiplier := 1.0 + float64(g.player.ComboCount)*0.1
 		damage := g.damageCalc.CalculateDamage(baseDamage, combat.DamagePhysical, isCritical, comboMultiplier)
 
@@ -499,13 +761,13 @@ func (g *Game) checkPlayerAttacksBoss() {
 		}
 	}
 
-	// Down Air Attack (MEJORADO)
+	// Down Air Attack
 	downAirHitbox := g.player.GetDownAirAttackHitbox()
 	if downAirHitbox != nil && downAirHitbox.Intersects(bossHurtbox) {
 		baseDamage := g.player.GetDownAirAttackDamage()
 
 		// Calcular daño
-		isCritical := g.damageCalc.RollCritical(0.25) // 25% de crítico para pogo
+		isCritical := g.damageCalc.RollCritical(0.25)
 		damage := g.damageCalc.CalculateDamage(baseDamage, combat.DamagePhysical, isCritical, 1.0)
 
 		if g.boss.TakeDamage(damage) {
@@ -535,7 +797,7 @@ func (g *Game) checkPlayerAttacksBoss() {
 				g.boss.ConsecutivePogos = 0
 			}
 
-			// Emitir evento (NUEVO)
+			// Emitir evento
 			g.eventSystem.EmitEvent(combat.CombatEvent{
 				Type:       combat.EventDamageDealt,
 				Damage:     damage,
@@ -648,36 +910,40 @@ func (g *Game) drawPlaying(screen *ebiten.Image) {
 	// 2. Dibujar boss
 	g.boss.Draw(screen)
 
-	// 3. Dibujar jugador
+	// 3. Dibujar proyectiles (NUEVO - detrás del jugador)
+	g.projectileManager.Draw(screen)
+
+	// 4. Dibujar jugador
 	g.player.Draw(screen)
 
-	// 4. Dibujar efectos visuales (NUEVO)
+	// 5. Dibujar efectos visuales
 	g.drawVisualEffects(screen)
 
-	// 5. Debug: Hitboxes
+	// 6. Debug: Hitboxes
 	if g.config.ShowDebugInfo {
 		g.drawDebugHitboxes(screen)
 	}
 
-	// 6. Mensaje
-	msg := "⚔️ Módulo 6: Combat System!\n\n"
+	// 7. Mensaje (ACTUALIZADO)
+	msg := "🚀 Módulo 7: Projectile System!\n\n"
 	msg += "🎮 Controles:\n"
 	msg += "  WASD/Stick = Mover\n"
 	msg += "  Space/✕    = Saltar\n"
 	msg += "  Z/⬜        = Atacar\n"
 	msg += "  X/⚪/R2     = Dash\n"
-	msg += "  Down+Z     = Pogo\n\n"
+	msg += "  Down+Z     = Pogo\n"
+	msg += "  Q/L1       = Disparar (mantén para cargar)\n\n"
 	msg += "✨ NUEVO:\n"
-	msg += "  💥 Partículas de impacto\n"
-	msg += "  🌟 Screen shake\n"
-	msg += "  ⏸️  Hit stop (freeze frame)\n"
-	msg += "  🎯 Sistema de críticos\n"
-	msg += "  📊 Estadísticas en tiempo real\n"
-	msg += "  🔥 Eventos con concurrencia"
+	msg += "  💥 Sistema de proyectiles\n"
+	msg += "  🎯 Object pooling (reutilización)\n"
+	msg += "  🧠 Boss esquiva en Fase 2-3\n"
+	msg += "  🔥 Boss dispara en Fase 2-3\n"
+	msg += "  🚀 Misiles homing en Fase 3\n"
+	msg += "  🔄 Worker pool opcional"
 
 	ebitenutil.DebugPrintAt(screen, msg, 20, 20)
 
-	// 7. HUD
+	// 8. HUD
 	g.drawPlayerHUD(screen)
 	g.drawBossHUD(screen)
 	g.drawStatsHUD(screen)
@@ -729,6 +995,11 @@ func (g *Game) drawVictory(screen *ebiten.Image) {
 
 	stats := g.eventSystem.GetStats()
 
+	accuracy := 0.0
+	if stats.PlayerAttacksLanded+stats.PlayerAttacksMissed > 0 {
+		accuracy = float64(stats.PlayerAttacksLanded) / float64(stats.PlayerAttacksLanded+stats.PlayerAttacksMissed) * 100
+	}
+
 	msg := fmt.Sprintf(
 		"🏆 ¡VICTORIA!\n\n"+
 			"Daño total: %d\n"+
@@ -736,17 +1007,17 @@ func (g *Game) drawVictory(screen *ebiten.Image) {
 			"Combo máximo: %d\n"+
 			"Críticos: %d\n"+
 			"Precisión: %.1f%%\n\n"+
-			"Módulo 6 completado 🎉\n\n"+
+			"Módulo 7 completado 🎉\n\n"+
 			"Presiona R (teclado) o\n"+
 			"△/Y (gamepad) para jugar otra vez",
 		stats.PlayerDamageDealt,
 		stats.PlayerDamageTaken,
 		stats.HighestCombo,
 		stats.CriticalHits,
-		float64(stats.PlayerAttacksLanded)/float64(stats.PlayerAttacksLanded+stats.PlayerAttacksMissed)*100,
+		accuracy,
 	)
 
-	ebitenutil.DebugPrintAt(screen, msg, ScreenWidth/2-130, ScreenHeight/2-80)
+	ebitenutil.DebugPrintAt(screen, msg, ScreenWidth/2-130, ScreenWidth/2-80)
 }
 
 // ============================================================================
@@ -877,7 +1148,6 @@ func (g *Game) drawBossHUD(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, hpText, int(barX+barWidth/2-30), int(barY+27))
 }
 
-// drawStatsHUD dibuja estadísticas en tiempo real (NUEVO)
 func (g *Game) drawStatsHUD(screen *ebiten.Image) {
 	stats := g.eventSystem.GetStats()
 
@@ -994,6 +1264,12 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 	}
 
 	stats := g.eventSystem.GetStats()
+	activeProj, createdProj, reusedProj := g.projectileManager.GetStats()
+
+	efficiency := 0.0
+	if createdProj+reusedProj > 0 {
+		efficiency = float64(reusedProj) / float64(createdProj+reusedProj) * 100
+	}
 
 	debugText := fmt.Sprintf(
 		"🎮 %s %s\n"+
@@ -1016,6 +1292,12 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 			"Eventos: %d\n"+
 			"Screen Shake: %v\n"+
 			"━━━━━━━━━━━━━━━━━━━━━━\n"+
+			"PROJECTILES:\n"+
+			"Activos: %d\n"+
+			"Creados: %d\n"+
+			"Reutilizados: %d\n"+
+			"Eficiencia: %.1f%%\n"+
+			"━━━━━━━━━━━━━━━━━━━━━━\n"+
 			"INPUT: %s",
 		GameTitle,
 		GameVersion,
@@ -1033,10 +1315,14 @@ func (g *Game) drawDebugInfo(screen *ebiten.Image) {
 		len(g.particleSystem.GetParticles()),
 		stats.TotalEvents,
 		g.screenShake.IsActive(),
+		activeProj,
+		createdProj,
+		reusedProj,
+		efficiency,
 		inputMethod,
 	)
 
-	debugBg := ebiten.NewImage(300, 500)
+	debugBg := ebiten.NewImage(300, 550)
 	debugBg.Fill(color.RGBA{0, 0, 0, 180})
 	screen.DrawImage(debugBg, nil)
 

@@ -68,6 +68,12 @@ type Boss struct {
 	// Colores
 	bodyColor   color.RGBA
 	accentColor color.RGBA
+
+	// Disparo (Módulo 7)
+	ShootCooldown  int
+	ShootDelay     int
+	WantsToShoot   bool
+	ProjectileType int // Tipo de proyectil a disparar
 }
 
 // BossConfig contiene la configuración del boss
@@ -176,6 +182,11 @@ func NewBoss(x, y float64, arena *world.Arena) *Boss {
 
 		bodyColor:   color.RGBA{255, 69, 0, 255}, // Fase 1
 		accentColor: color.RGBA{255, 140, 0, 255},
+
+		ShootCooldown:  0,     // NUEVO
+		ShootDelay:     0,     // NUEVO
+		WantsToShoot:   false, // NUEVO
+		ProjectileType: 0,     // NUEVO
 	}
 }
 
@@ -275,6 +286,13 @@ func (b *Boss) updateTimers() {
 	// Delay de ataque
 	if b.AttackDelay > 0 {
 		b.AttackDelay--
+	}
+	// Cooldown de disparo (NUEVO)
+	if b.ShootCooldown > 0 {
+		b.ShootCooldown--
+	}
+	if b.ShootDelay > 0 {
+		b.ShootDelay--
 	}
 }
 

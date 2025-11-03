@@ -42,23 +42,29 @@ func (b *Boss) updateFacingDirection() {
 }
 
 // makeDecision decide la próxima acción del boss
-// makeDecision decide la próxima acción del boss
 func (b *Boss) makeDecision() {
 	if b.Target == nil {
 		return
 	}
 
-	// Distancia 2D completa (incluye altura)
+	// Distancia 2D completa
 	distanceToPlayer := b.Position.Distance(b.Target.Position)
 
-	// Distancia solo horizontal (para algunos ataques específicos)
+	// Distancia solo horizontal
 	horizontalDistance := utils.Abs(b.Position.X - b.Target.Position.X)
-
-	// Usar distancia horizontal para decisiones de movimiento
-	_ = horizontalDistance // Por ahora no se usa, pero está disponible
 
 	// Lista de ataques disponibles
 	availableAttacks := []BossState{}
+
+	// ========================================================================
+	// FASE 2 y 3: El boss puede disparar proyectiles (NUEVO)
+	// ========================================================================
+	if (b.Phase == Phase2 || b.Phase == Phase3) && b.ShootCooldown == 0 {
+		// Si el jugador está lejos, disparar
+		if horizontalDistance > 250 && horizontalDistance < 600 {
+			availableAttacks = append(availableAttacks, BossStateShooting)
+		}
+	}
 
 	// Ataque básico siempre disponible si está en rango
 	if distanceToPlayer <= b.config.AttackRange && b.AttackCooldown == 0 {
@@ -71,7 +77,7 @@ func (b *Boss) makeDecision() {
 	}
 
 	// Charge disponible (si el jugador está lejos)
-	if b.ChargeCooldown == 0 && distanceToPlayer > 150 && distanceToPlayer < 400 {
+	if b.ChargeCooldown == 0 && horizontalDistance > 150 && horizontalDistance < 400 {
 		availableAttacks = append(availableAttacks, BossStateCharge)
 	}
 
@@ -118,6 +124,8 @@ func (b *Boss) executeAction() {
 		b.performCharge()
 	case BossStateRoar:
 		b.performRoar()
+	case BossStateShooting:
+		b.performShoot()
 	}
 }
 
