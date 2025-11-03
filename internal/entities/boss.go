@@ -369,15 +369,29 @@ func (b *Boss) applyPhysics() {
 		b.Velocity.X = 0
 	}
 
-	// Gravedad
+	// ========================================================================
+	// GRAVEDAD (con límites)
+	// ========================================================================
 	if !b.IsOnGround {
 		b.Velocity.Y += b.config.Gravity
 		if b.Velocity.Y > b.config.MaxFallSpeed {
 			b.Velocity.Y = b.config.MaxFallSpeed
 		}
+
+		// IMPORTANTE: Limitar velocidad hacia arriba también (NUEVO)
+		if b.Velocity.Y < -b.config.MaxFallSpeed {
+			b.Velocity.Y = -b.config.MaxFallSpeed
+		}
+	} else {
+		// Si está en el suelo, resetear velocidad Y
+		if b.Velocity.Y > 0 {
+			b.Velocity.Y = 0
+		}
 	}
 
-	// Fricción
+	// ========================================================================
+	// FRICCIÓN
+	// ========================================================================
 	if b.IsOnGround && b.State != BossStateCharge {
 		b.Velocity.X *= b.config.Friction
 		if utils.Abs(b.Velocity.X) < 0.1 {
@@ -388,7 +402,9 @@ func (b *Boss) applyPhysics() {
 
 // applyMovement aplica el movimiento con colisiones
 func (b *Boss) applyMovement() {
-	// Movimiento horizontal
+	// ========================================================================
+	// MOVIMIENTO HORIZONTAL
+	// ========================================================================
 	newX := b.Position.X + b.Velocity.X
 	testRect := utils.NewRectangle(
 		newX-b.Size.X/2,
@@ -408,7 +424,9 @@ func (b *Boss) applyMovement() {
 		}
 	}
 
-	// Movimiento vertical
+	// ========================================================================
+	// MOVIMIENTO VERTICAL
+	// ========================================================================
 	newY := b.Position.Y + b.Velocity.Y
 	testRect = utils.NewRectangle(
 		b.Position.X-b.Size.X/2,
@@ -424,11 +442,22 @@ func (b *Boss) applyMovement() {
 		b.Velocity.Y = 0
 	}
 
-	// Límites de seguridad
+	// ========================================================================
+	// LÍMITES DE SEGURIDAD (MEJORADOS)
+	// ========================================================================
+
+	// Límite inferior (piso)
 	floorY := b.arena.GetFloorY()
 	if b.Position.Y > floorY+100 {
 		b.Position.Y = 300
 		b.Velocity = utils.Zero()
+	}
+
+	// Límite superior (TECHO - NUEVO) ← IMPORTANTE
+	ceilingY := b.Size.Y / 2
+	if b.Position.Y < ceilingY {
+		b.Position.Y = ceilingY
+		b.Velocity.Y = 0 // Detener movimiento hacia arriba
 	}
 
 	// Límites laterales
@@ -436,10 +465,20 @@ func (b *Boss) applyMovement() {
 	if b.Position.X < margin+60 {
 		b.Position.X = margin + 60
 		b.Velocity.X = 0
+		// Detener charge si choca con pared
+		if b.State == BossStateCharge {
+			b.ChargeDuration = 0
+			b.State = BossStateIdle
+		}
 	}
 	if b.Position.X > 1280-margin-60 {
 		b.Position.X = 1280 - margin - 60
 		b.Velocity.X = 0
+		// Detener charge si choca con pared
+		if b.State == BossStateCharge {
+			b.ChargeDuration = 0
+			b.State = BossStateIdle
+		}
 	}
 }
 
@@ -592,4 +631,10 @@ func (b *Boss) drawHealthBar(screen *ebiten.Image) {
 
 	// Borde
 	vector.StrokeRect(screen, barX, barY, barWidth, barHeight, 1, color.White, false)
+}
+
+// UpdateColor actualiza el color del boss según su fase actual
+func (b *Boss) UpdateColor() {
+	r, g, bl := b.Phase.GetColor()
+	b.bodyColor = color.RGBA{r, g, bl, 255}
 }
